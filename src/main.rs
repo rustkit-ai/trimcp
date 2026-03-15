@@ -1,3 +1,10 @@
+mod cache;
+mod compress;
+mod config;
+mod error;
+mod metrics;
+mod proxy;
+
 fn main() {
-    println!("Hello, world!");
+    println!("rustkit-mcp");
 }
