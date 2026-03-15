@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 
+use crate::compress::{Pipeline, tokens_saved};
 use crate::error::{Error, Result};
-use crate::protocol::{IncomingMessage, JsonRpcResponse};
+use crate::metrics::Metrics;
+use crate::protocol::{IncomingMessage, JsonRpcResponse, ResponsePayload};
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tracing::debug;
@@ -12,11 +15,13 @@ pub struct Proxy {
     child: Child,
     writer: BufWriter<ChildStdin>,
     reader: BufReader<ChildStdout>,
+    pipeline: Pipeline,
+    metrics: Arc<Metrics>,
 }
 
 impl Proxy {
     /// Spawn the upstream MCP server.
-    pub fn spawn(command: &str, args: &[String]) -> Result<Self> {
+    pub fn spawn(command: &str, args: &[String], metrics: Arc<Metrics>) -> Result<Self> {
         let mut child = Command::new(command)
             .args(args)
             .stdin(std::process::Stdio::piped())
@@ -38,6 +43,8 @@ impl Proxy {
             child,
             writer: BufWriter::new(stdin),
             reader: BufReader::new(stdout),
+            pipeline: Pipeline::default_pipeline(),
+            metrics,
         })
     }
 
@@ -89,10 +96,39 @@ impl Proxy {
         Ok(Some(resp))
     }
 
-    /// Hook for TICKET-005: intercept tools/call responses for compression.
-    /// Currently a no-op pass-through.
+    /// Intercept tools/call responses and compress text content.
     fn intercept_tools_call(&self, resp: JsonRpcResponse) -> JsonRpcResponse {
-        resp
+        let ResponsePayload::Result(ref value) = resp.payload else {
+            return resp;
+        };
+
+        let Some(original) = extract_text_content(value) else {
+            return resp;
+        };
+
+        let compressed = self.pipeline.compress(&original);
+        let saved = tokens_saved(&original, &compressed);
+
+        if saved == 0 {
+            return resp;
+        }
+
+        self.metrics.record(&original, &compressed);
+        debug!(saved, "compressed tools/call output");
+
+        let mut new_value = value.clone();
+        if let Some(Some(items)) = new_value.get_mut("content").map(|c| c.as_array_mut()) {
+            for item in items.iter_mut() {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    item["text"] = serde_json::Value::String(compressed.clone());
+                }
+            }
+        }
+
+        JsonRpcResponse {
+            payload: ResponsePayload::Result(new_value),
+            ..resp
+        }
     }
 
     /// Kill the upstream process.
