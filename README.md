@@ -96,7 +96,7 @@ enabled = true        # print summary to stderr at session end
 realtime = false      # print running total after each tool call
 
 [cache]
-enabled = false       # TTL cache for identical tool call results
+enabled = true        # TTL cache for identical tool call results
 ttl_secs = 300        # cache lifetime in seconds
 ```
 

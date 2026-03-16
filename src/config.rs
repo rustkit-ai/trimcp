@@ -72,7 +72,7 @@ impl Default for MetricsConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             ttl_secs: 300,
         }
     }
@@ -151,7 +151,7 @@ mod tests {
         assert!(!cfg.compression.strip_comments);
         assert!(cfg.metrics.enabled);
         assert!(!cfg.metrics.realtime);
-        assert!(!cfg.cache.enabled);
+        assert!(cfg.cache.enabled);
         assert_eq!(cfg.cache.ttl_secs, 300);
     }
 
