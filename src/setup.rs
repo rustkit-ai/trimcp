@@ -31,6 +31,16 @@ struct Client {
     restart_hint: &'static str,
 }
 
+/// Build a VS Code globalStorage path for a given extension and settings file.
+fn vscode_ext_path(vscode_base: &Path, extension_id: &str, file: &str) -> PathBuf {
+    vscode_base
+        .join("User")
+        .join("globalStorage")
+        .join(extension_id)
+        .join("settings")
+        .join(file)
+}
+
 fn detect_clients() -> Vec<Client> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let home = PathBuf::from(&home);
@@ -81,6 +91,8 @@ fn detect_clients() -> Vec<Client> {
     #[cfg(target_os = "macos")]
     {
         let app_support = home.join("Library").join("Application Support");
+        let vscode = app_support.join("Code");
+        let vscode_insiders = app_support.join("Code - Insiders");
 
         candidates.push(Client {
             name: "Claude Desktop",
@@ -90,24 +102,47 @@ fn detect_clients() -> Vec<Client> {
         });
         candidates.push(Client {
             name: "VS Code",
-            config_path: app_support.join("Code").join("User").join("mcp.json"),
+            config_path: vscode.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code to apply changes.",
         });
         candidates.push(Client {
             name: "VS Code Insiders",
-            config_path: app_support
-                .join("Code - Insiders")
-                .join("User")
-                .join("mcp.json"),
+            config_path: vscode_insiders.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code Insiders to apply changes.",
+        });
+        candidates.push(Client {
+            name: "Cline",
+            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code",
+            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Roo Code changes.",
+        });
+        candidates.push(Client {
+            name: "Cline (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
         });
     }
 
     #[cfg(target_os = "linux")]
     {
         let config = home.join(".config");
+        let vscode = config.join("Code");
+        let vscode_insiders = config.join("Code - Insiders");
 
         candidates.push(Client {
             name: "Claude Desktop",
@@ -117,18 +152,39 @@ fn detect_clients() -> Vec<Client> {
         });
         candidates.push(Client {
             name: "VS Code",
-            config_path: config.join("Code").join("User").join("mcp.json"),
+            config_path: vscode.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code to apply changes.",
         });
         candidates.push(Client {
             name: "VS Code Insiders",
-            config_path: config
-                .join("Code - Insiders")
-                .join("User")
-                .join("mcp.json"),
+            config_path: vscode_insiders.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code Insiders to apply changes.",
+        });
+        candidates.push(Client {
+            name: "Cline",
+            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code",
+            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Roo Code changes.",
+        });
+        candidates.push(Client {
+            name: "Cline (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
         });
     }
 
@@ -137,6 +193,9 @@ fn detect_clients() -> Vec<Client> {
         let appdata = PathBuf::from(
             std::env::var("APPDATA").unwrap_or_else(|_| home.display().to_string()),
         );
+        let vscode = appdata.join("Code");
+        let vscode_insiders = appdata.join("Code - Insiders");
+
         candidates.push(Client {
             name: "Claude Desktop",
             config_path: appdata.join("Claude").join("claude_desktop_config.json"),
@@ -145,18 +204,39 @@ fn detect_clients() -> Vec<Client> {
         });
         candidates.push(Client {
             name: "VS Code",
-            config_path: appdata.join("Code").join("User").join("mcp.json"),
+            config_path: vscode.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code to apply changes.",
         });
         candidates.push(Client {
             name: "VS Code Insiders",
-            config_path: appdata
-                .join("Code - Insiders")
-                .join("User")
-                .join("mcp.json"),
+            config_path: vscode_insiders.join("User").join("mcp.json"),
             format: Format::VsCodeServers,
             restart_hint: "Restart VS Code Insiders to apply changes.",
+        });
+        candidates.push(Client {
+            name: "Cline",
+            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code",
+            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code to apply Roo Code changes.",
+        });
+        candidates.push(Client {
+            name: "Cline (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
+        });
+        candidates.push(Client {
+            name: "Roo Code (Insiders)",
+            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
+            format: Format::McpServers,
+            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
         });
     }
 
