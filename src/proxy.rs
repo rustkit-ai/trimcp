@@ -163,10 +163,12 @@ impl Proxy {
         Some(resp)
     }
 
-    /// Store a tools/call response in the cache.
+    /// Store a tools/call response in the cache, evicting stale entries first.
     fn cache_insert(&mut self, req: &JsonRpcRequest, resp: JsonRpcResponse) {
         if let (Some(cache), Some(key)) = (&mut self.cache, tools_call_cache_key(req)) {
+            cache.evict_expired();
             cache.insert(key, resp);
+            debug!(entries = cache.len(), "cache updated");
         }
     }
 
