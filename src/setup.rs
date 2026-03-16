@@ -267,6 +267,10 @@ pub fn run(config_path: &Path) -> Result<()> {
         println!("{} ({})", client.name, client.config_path.display());
 
         let raw = std::fs::read_to_string(&client.config_path)?;
+        if raw.trim().is_empty() {
+            println!("  (empty file, skipping)\n");
+            continue;
+        }
         let mut json: Value = serde_json::from_str(&raw)?;
 
         let imported = match client.format {
