@@ -7,6 +7,7 @@ mod error;
 mod metrics;
 mod protocol;
 mod proxy;
+mod setup;
 mod transport;
 
 use clap::{Parser, Subcommand};
@@ -62,6 +63,9 @@ enum Command {
         #[arg(long, default_value = "warn", value_name = "LEVEL")]
         log_level: String,
     },
+
+    /// Auto-detect MCP clients and set up trimcp as proxy
+    Setup,
 }
 
 #[tokio::main]
@@ -78,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
             metrics,
             log_level,
         } => cmd_proxy(&config_path, &name, metrics, &log_level).await,
+        Command::Setup => setup::run(&config_path).map_err(Into::into),
     }
 }
 
@@ -95,6 +100,7 @@ fn cmd_add(config_path: &PathBuf, name: &str, upstream: &[String]) -> anyhow::Re
         ServerConfig {
             command: upstream[0].clone(),
             args: upstream[1..].to_vec(),
+            env: std::collections::HashMap::new(),
         },
     );
 
@@ -168,7 +174,7 @@ async fn cmd_proxy(
     );
 
     let mut proxy = {
-        let p = Proxy::spawn(&server.command, &server.args, Arc::clone(&metrics))?;
+        let p = Proxy::spawn(&server.command, &server.args, &server.env, Arc::clone(&metrics))?;
         if config.cache.enabled {
             p.with_cache(config.cache.ttl_secs)
         } else {

@@ -18,6 +18,7 @@ pub struct Config {
 pub struct ServerConfig {
     pub command: String,
     pub args: Vec<String>,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +221,7 @@ args = []
             ServerConfig {
                 command: "my-cmd".to_string(),
                 args: vec!["--flag".to_string()],
+                env: HashMap::new(),
             },
         );
         cfg.save(&path).unwrap();

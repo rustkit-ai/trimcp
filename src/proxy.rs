@@ -4,6 +4,7 @@ use crate::error::{Error, Result};
 use crate::metrics::Metrics;
 use crate::protocol::{IncomingMessage, JsonRpcRequest, JsonRpcResponse, ResponsePayload};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -21,9 +22,10 @@ pub struct Proxy {
 
 impl Proxy {
     /// Spawn the upstream MCP server.
-    pub fn spawn(command: &str, args: &[String], metrics: Arc<Metrics>) -> Result<Self> {
+    pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>, metrics: Arc<Metrics>) -> Result<Self> {
         let mut child = Command::new(command)
             .args(args)
+            .envs(env)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
