@@ -77,7 +77,7 @@ pub fn all_client_defs() -> Vec<ClientDef> {
         // ── Claude Code ───────────────────────────────────────────────────────
         ClientDef {
             name: "Claude Code",
-            config_path: home.join(".claude").join("settings.json"),
+            config_path: home.join(".claude").join("mcp.json"),
             format: Format::Mcp,
             restart_hint: "Restart Claude Code to apply changes.",
         },
