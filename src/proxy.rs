@@ -174,6 +174,11 @@ impl Proxy {
 
     /// Kill the upstream process.
     pub async fn shutdown(&mut self) -> Result<()> {
+        if let Some(cache) = &self.cache {
+            if !cache.is_empty() {
+                debug!(entries = cache.len(), "cache entries at shutdown");
+            }
+        }
         self.child
             .kill()
             .await
