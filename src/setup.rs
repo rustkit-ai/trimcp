@@ -12,9 +12,9 @@ struct Client {
 
 fn detect_clients() -> Vec<Client> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let home = PathBuf::from(home);
+    let home = PathBuf::from(&home);
 
-    vec![
+    let mut candidates = vec![
         Client {
             name: "Claude Code",
             config_path: home.join(".claude").join("settings.json"),
@@ -25,17 +25,55 @@ fn detect_clients() -> Vec<Client> {
             config_path: home.join(".cursor").join("mcp.json"),
             restart_hint: "Restart Cursor to apply changes.",
         },
-    ]
-    .into_iter()
-    .filter(|c| c.config_path.exists())
-    .collect()
+        Client {
+            name: "Windsurf",
+            config_path: home.join(".codeium").join("windsurf").join("mcp_config.json"),
+            restart_hint: "Restart Windsurf to apply changes.",
+        },
+    ];
+
+    // Claude Desktop — path varies by OS
+    #[cfg(target_os = "macos")]
+    candidates.push(Client {
+        name: "Claude Desktop",
+        config_path: home
+            .join("Library")
+            .join("Application Support")
+            .join("Claude")
+            .join("claude_desktop_config.json"),
+        restart_hint: "Restart Claude Desktop to apply changes.",
+    });
+
+    #[cfg(target_os = "linux")]
+    candidates.push(Client {
+        name: "Claude Desktop",
+        config_path: home
+            .join(".config")
+            .join("Claude")
+            .join("claude_desktop_config.json"),
+        restart_hint: "Restart Claude Desktop to apply changes.",
+    });
+
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| home.display().to_string());
+        candidates.push(Client {
+            name: "Claude Desktop",
+            config_path: PathBuf::from(appdata)
+                .join("Claude")
+                .join("claude_desktop_config.json"),
+            restart_hint: "Restart Claude Desktop to apply changes.",
+        });
+    }
+
+    candidates.into_iter().filter(|c| c.config_path.exists()).collect()
 }
 
 pub fn run(config_path: &Path) -> Result<()> {
     let clients = detect_clients();
 
     if clients.is_empty() {
-        println!("No MCP clients found (Claude Code, Cursor).");
+        println!("No MCP clients found (Claude Code, Claude Desktop, Cursor, Windsurf).");
         println!("Add servers manually with: trimcp add <name> -- <command> [args...]");
         return Ok(());
     }
@@ -66,7 +104,18 @@ pub fn run(config_path: &Path) -> Result<()> {
                 continue;
             }
 
-            // Skip HTTP-based servers (url field instead of command)
+            // Skip disabled servers
+            if entry.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("  - {name:<20} skipped (disabled)");
+                continue;
+            }
+
+            // Skip HTTP-based servers (serverUrl instead of command)
+            if entry.get("serverUrl").is_some() || entry.get("url").is_some() {
+                println!("  - {name:<20} skipped (HTTP server, not supported)");
+                continue;
+            }
+
             let Some(command) = entry.get("command").and_then(|v| v.as_str()) else {
                 println!("  ? {name:<20} skipped (no command field)");
                 continue;
@@ -113,15 +162,14 @@ pub fn run(config_path: &Path) -> Result<()> {
                 "args": ["proxy", name]
             });
 
-            println!("  \u{2713} {name:<20} {display_cmd}");
+            println!("  ✓ {name:<20} {display_cmd}");
             imported += 1;
         }
 
         if imported > 0 {
-            // Write updated client config (preserve formatting as much as possible)
             let updated = serde_json::to_string_pretty(&json)?;
             std::fs::write(&client.config_path, updated)?;
-            println!("  \u{2192} {} updated", client.config_path.display());
+            println!("  → {} updated", client.config_path.display());
             total_imported += imported;
         }
 
@@ -131,20 +179,18 @@ pub fn run(config_path: &Path) -> Result<()> {
     if total_imported > 0 {
         trimcp_config.save(config_path)?;
         println!(
-            "{} server{} imported \u{2192} {}",
+            "{} server{} imported → {}",
             total_imported,
             if total_imported == 1 { "" } else { "s" },
             config_path.display()
         );
         println!();
-
         for client in &clients {
-            println!("{}", client.restart_hint);
+            println!("→ {}", client.restart_hint);
         }
     } else {
-        println!("Nothing to import \u{2014} all servers already proxied.");
+        println!("Nothing to import — all servers already proxied or disabled.");
     }
 
     Ok(())
 }
-
