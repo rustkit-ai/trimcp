@@ -1,7 +1,7 @@
-# rustkit-mcp
+# trimcp
 
-[![CI](https://github.com/rustkit-ai/rustkit-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rustkit-ai/rustkit-mcp/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/rustkit-mcp.svg)](https://crates.io/crates/rustkit-mcp)
+[![CI](https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/trimcp.svg)](https://crates.io/crates/trimcp)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 MCP proxy that reduces LLM token costs by **60–90%** through output compression and TTL caching.
@@ -9,33 +9,33 @@ MCP proxy that reduces LLM token costs by **60–90%** through output compressio
 ```
 LLM Client (Claude Code, Cursor, claude_desktop…)
         ↓
-  rustkit-mcp          ← strips ANSI, minifies JSON, deduplicates lines
+  trimcp          ← strips ANSI, minifies JSON, deduplicates lines
    ↙    ↓    ↘
 MCP1  MCP2  MCP3
 ```
 
 ## Why
 
-MCP tool outputs are often verbose: pretty-printed JSON, ANSI color codes, repeated lines, inline comments. All of that costs tokens without adding information. `rustkit-mcp` sits between your LLM client and the upstream servers and applies lossless compression before the output reaches the model.
+MCP tool outputs are often verbose: pretty-printed JSON, ANSI color codes, repeated lines, inline comments. All of that costs tokens without adding information. `trimcp` sits between your LLM client and the upstream servers and applies lossless compression before the output reaches the model.
 
 ## Install
 
 ```bash
-cargo install rustkit-mcp
+cargo install trimcp
 ```
 
 ## Quick start
 
 ```bash
 # Register your MCP servers
-rustkit-mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
-rustkit-mcp add github    -- npx -y @modelcontextprotocol/server-github
+trimcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
+trimcp add github    -- npx -y @modelcontextprotocol/server-github
 
 # Check what's configured
-rustkit-mcp list
+trimcp list
 
 # Use in proxy mode (called by your LLM client)
-rustkit-mcp proxy filesystem
+trimcp proxy filesystem
 ```
 
 ## LLM client configuration
@@ -46,11 +46,11 @@ rustkit-mcp proxy filesystem
 {
   "mcpServers": {
     "filesystem": {
-      "command": "rustkit-mcp",
+      "command": "trimcp",
       "args": ["proxy", "filesystem"]
     },
     "github": {
-      "command": "rustkit-mcp",
+      "command": "trimcp",
       "args": ["proxy", "github"]
     }
   }
@@ -63,7 +63,7 @@ rustkit-mcp proxy filesystem
 {
   "mcpServers": {
     "filesystem": {
-      "command": "rustkit-mcp",
+      "command": "trimcp",
       "args": ["proxy", "filesystem"]
     }
   }
@@ -72,7 +72,7 @@ rustkit-mcp proxy filesystem
 
 ## Configuration
 
-Config is stored at `~/.config/rustkit-mcp/config.toml` (created automatically on first `add`).
+Config is stored at `~/.config/trimcp/config.toml` (created automatically on first `add`).
 
 ```toml
 [servers.filesystem]
@@ -115,10 +115,10 @@ Strategies run in pipeline order. None of them truncate or lose information.
 ## CLI reference
 
 ```
-rustkit-mcp add <name> -- <command> [args...]   Add a server to the config
-rustkit-mcp remove <name>                        Remove a server
-rustkit-mcp list                                 List configured servers
-rustkit-mcp proxy <name> [--metrics]             Run as proxy (used by LLM clients)
+trimcp add <name> -- <command> [args...]   Add a server to the config
+trimcp remove <name>                        Remove a server
+trimcp list                                 List configured servers
+trimcp proxy <name> [--metrics]             Run as proxy (used by LLM clients)
 ```
 
 ## Development

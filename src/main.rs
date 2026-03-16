@@ -19,9 +19,9 @@ use transport::{StdinReader, StdoutWriter};
 
 /// MCP proxy that reduces LLM token costs through compression and caching.
 #[derive(Debug, Parser)]
-#[command(name = "rustkit-mcp", version, about)]
+#[command(name = "trimcp", version, about)]
 struct Cli {
-    /// Path to config file (default: ~/.config/rustkit-mcp/config.toml)
+    /// Path to config file (default: ~/.config/trimcp/config.toml)
     #[arg(short, long, value_name = "FILE", global = true)]
     config: Option<PathBuf>,
 
@@ -87,7 +87,7 @@ fn cmd_add(config_path: &PathBuf, name: &str, upstream: &[String]) -> anyhow::Re
     let mut config = Config::load(config_path)?;
 
     if upstream.is_empty() {
-        anyhow::bail!("upstream command is required — use: rustkit-mcp add {name} -- <command> [args...]");
+        anyhow::bail!("upstream command is required — use: trimcp add {name} -- <command> [args...]");
     }
 
     config.servers.insert(
@@ -107,7 +107,7 @@ fn cmd_remove(config_path: &PathBuf, name: &str) -> anyhow::Result<()> {
     let mut config = Config::load(config_path)?;
 
     if config.servers.remove(name).is_none() {
-        anyhow::bail!("server '{name}' not found — run `rustkit-mcp list` to see available servers");
+        anyhow::bail!("server '{name}' not found — run `trimcp list` to see available servers");
     }
 
     config.save(config_path)?;
@@ -120,7 +120,7 @@ fn cmd_list(config_path: &PathBuf) -> anyhow::Result<()> {
 
     if config.servers.is_empty() {
         println!("No servers configured.");
-        println!("Add one with: rustkit-mcp add <name> -- <command> [args...]");
+        println!("Add one with: trimcp add <name> -- <command> [args...]");
         return Ok(());
     }
 
@@ -189,7 +189,7 @@ async fn cmd_proxy(
             Some(response) => {
                 if config.metrics.realtime && metrics.tool_calls() > 0 {
                     eprintln!(
-                        "[rustkit-mcp] saved {} tokens so far ({:.1}%)",
+                        "[trimcp] saved {} tokens so far ({:.1}%)",
                         metrics.tokens_saved(),
                         metrics.savings_percent()
                     );

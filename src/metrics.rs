@@ -55,7 +55,7 @@ impl Metrics {
     /// Print session summary to stderr.
     pub fn print_summary(&self) {
         eprintln!();
-        eprintln!("[rustkit-mcp] Session summary:");
+        eprintln!("[trimcp] Session summary:");
         eprintln!("  Tool calls proxied : {}", self.tool_calls());
         eprintln!("  Tokens in          : {}", format_number(self.tokens_in()));
         eprintln!(

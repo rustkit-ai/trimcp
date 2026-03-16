@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Full proxy configuration loaded from `~/.config/rustkit-mcp/config.toml`.
+/// Full proxy configuration loaded from `~/.config/trimcp/config.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -80,12 +80,12 @@ impl Default for CacheConfig {
 
 // ── Path ──────────────────────────────────────────────────────────────────────
 
-/// Default config file path: `~/.config/rustkit-mcp/config.toml`.
+/// Default config file path: `~/.config/trimcp/config.toml`.
 pub fn default_config_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home)
         .join(".config")
-        .join("rustkit-mcp")
+        .join("trimcp")
         .join("config.toml")
 }
 
@@ -124,7 +124,7 @@ impl Config {
     pub fn get_server(&self, name: &str) -> Result<&ServerConfig> {
         self.servers.get(name).ok_or_else(|| {
             Error::Config(format!(
-                "server '{name}' not found — run `rustkit-mcp list` to see available servers"
+                "server '{name}' not found — run `trimcp list` to see available servers"
             ))
         })
     }
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_load_absent_file_returns_default() {
-        let cfg = Config::load(Path::new("/nonexistent/rustkit-mcp.toml")).unwrap();
+        let cfg = Config::load(Path::new("/nonexistent/trimcp.toml")).unwrap();
         assert!(cfg.compression.enabled);
         assert!(cfg.servers.is_empty());
     }
