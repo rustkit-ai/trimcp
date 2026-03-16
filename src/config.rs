@@ -90,6 +90,15 @@ pub fn default_config_path() -> PathBuf {
         .join("config.toml")
 }
 
+/// Persistent stats file path: `~/.config/trimcp/stats.json`.
+pub fn stats_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("trimcp")
+        .join("stats.json")
+}
+
 // ── Loading / Saving ──────────────────────────────────────────────────────────
 
 impl Config {
@@ -110,7 +119,10 @@ impl Config {
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                Error::Config(format!("cannot create config dir {}: {e}", parent.display()))
+                Error::Config(format!(
+                    "cannot create config dir {}: {e}",
+                    parent.display()
+                ))
             })?;
         }
 

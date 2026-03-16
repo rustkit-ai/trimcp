@@ -22,7 +22,12 @@ pub struct Proxy {
 
 impl Proxy {
     /// Spawn the upstream MCP server.
-    pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>, metrics: Arc<Metrics>) -> Result<Self> {
+    pub fn spawn(
+        command: &str,
+        args: &[String],
+        env: &HashMap<String, String>,
+        metrics: Arc<Metrics>,
+    ) -> Result<Self> {
         let mut child = Command::new(command)
             .args(args)
             .envs(env)
@@ -69,11 +74,11 @@ impl Proxy {
                 Ok(None)
             }
             IncomingMessage::Request(req) => {
-                if req.is_tools_call() {
-                    if let Some(cached) = self.cache_get(req) {
-                        debug!("cache hit for tools/call");
-                        return Ok(Some(cached));
-                    }
+                if req.is_tools_call()
+                    && let Some(cached) = self.cache_get(req)
+                {
+                    debug!("cache hit for tools/call");
+                    return Ok(Some(cached));
                 }
 
                 self.send(msg).await?;
@@ -176,10 +181,10 @@ impl Proxy {
 
     /// Kill the upstream process.
     pub async fn shutdown(&mut self) -> Result<()> {
-        if let Some(cache) = &self.cache {
-            if !cache.is_empty() {
-                debug!(entries = cache.len(), "cache entries at shutdown");
-            }
+        if let Some(cache) = &self.cache
+            && !cache.is_empty()
+        {
+            debug!(entries = cache.len(), "cache entries at shutdown");
         }
         self.child
             .kill()

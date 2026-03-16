@@ -1,6 +1,8 @@
 #![deny(clippy::all)]
 
 mod cache;
+mod clients;
+mod cmd_stats;
 mod compress;
 mod config;
 mod error;
@@ -8,13 +10,17 @@ mod metrics;
 mod protocol;
 mod proxy;
 mod setup;
+mod stats_store;
+mod status;
 mod transport;
 
 use clap::{Parser, Subcommand};
 use config::{Config, ServerConfig, default_config_path};
 use metrics::Metrics;
 use proxy::Proxy;
-use std::{path::PathBuf, sync::Arc};
+use stats_store::StatsStore;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::debug;
 use transport::{StdinReader, StdoutWriter};
 
@@ -66,6 +72,15 @@ enum Command {
 
     /// Auto-detect MCP clients and set up trimcp as proxy
     Setup,
+
+    /// Show MCP server status across all clients
+    Status,
+
+    /// Show token savings statistics
+    Stats {
+        /// Server name (optional, shows all if omitted)
+        name: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -82,17 +97,21 @@ async fn main() -> anyhow::Result<()> {
             metrics,
             log_level,
         } => cmd_proxy(&config_path, &name, metrics, &log_level).await,
-        Command::Setup => setup::run(&config_path).map_err(Into::into),
+        Command::Setup => setup::run(&config_path),
+        Command::Status => status::run(&config_path),
+        Command::Stats { name } => cmd_stats::run(&config_path, name.as_deref()),
     }
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
-fn cmd_add(config_path: &PathBuf, name: &str, upstream: &[String]) -> anyhow::Result<()> {
+fn cmd_add(config_path: &Path, name: &str, upstream: &[String]) -> anyhow::Result<()> {
     let mut config = Config::load(config_path)?;
 
     if upstream.is_empty() {
-        anyhow::bail!("upstream command is required — use: trimcp add {name} -- <command> [args...]");
+        anyhow::bail!(
+            "upstream command is required — use: trimcp add {name} -- <command> [args...]"
+        );
     }
 
     config.servers.insert(
@@ -109,7 +128,7 @@ fn cmd_add(config_path: &PathBuf, name: &str, upstream: &[String]) -> anyhow::Re
     Ok(())
 }
 
-fn cmd_remove(config_path: &PathBuf, name: &str) -> anyhow::Result<()> {
+fn cmd_remove(config_path: &Path, name: &str) -> anyhow::Result<()> {
     let mut config = Config::load(config_path)?;
 
     if config.servers.remove(name).is_none() {
@@ -121,7 +140,7 @@ fn cmd_remove(config_path: &PathBuf, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmd_list(config_path: &PathBuf) -> anyhow::Result<()> {
+fn cmd_list(config_path: &Path) -> anyhow::Result<()> {
     let config = Config::load(config_path)?;
 
     if config.servers.is_empty() {
@@ -148,7 +167,7 @@ fn cmd_list(config_path: &PathBuf) -> anyhow::Result<()> {
 }
 
 async fn cmd_proxy(
-    config_path: &PathBuf,
+    config_path: &Path,
     name: &str,
     realtime_metrics: bool,
     log_level: &str,
@@ -174,7 +193,12 @@ async fn cmd_proxy(
     );
 
     let mut proxy = {
-        let p = Proxy::spawn(&server.command, &server.args, &server.env, Arc::clone(&metrics))?;
+        let p = Proxy::spawn(
+            &server.command,
+            &server.args,
+            &server.env,
+            Arc::clone(&metrics),
+        )?;
         if config.cache.enabled {
             p.with_cache(config.cache.ttl_secs)
         } else {
@@ -213,5 +237,15 @@ async fn cmd_proxy(
     }
 
     proxy.shutdown().await?;
+
+    // Persist session stats
+    if metrics.tool_calls() > 0 {
+        let stats_path = config::stats_path();
+        if let Ok(mut store) = StatsStore::load(&stats_path) {
+            store.record(name, &metrics);
+            let _ = store.save();
+        }
+    }
+
     Ok(())
 }

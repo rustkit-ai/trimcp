@@ -1,248 +1,35 @@
+use crate::clients::{self, ClientDef, Format};
 use crate::config::{Config, ServerConfig};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-// ── Config format ─────────────────────────────────────────────────────────────
-
-/// How a client stores its MCP server list.
-#[derive(Debug, Clone, Copy)]
-enum Format {
-    /// `{ "mcpServers": { "<name>": { "command", "args", "env" } } }`
-    /// Used by: Claude Code, Claude Desktop, Cursor, Windsurf, Continue.dev
-    McpServers,
-
-    /// `{ "servers": { "<name>": { "type", "command", "args" } } }`
-    /// Used by: VS Code 1.99+
-    VsCodeServers,
-
-    /// `{ "context_servers": { "<name>": { "command": { "path", "args" } } } }`
-    /// Used by: Zed
-    ZedContextServers,
-}
-
-// ── Client registry ───────────────────────────────────────────────────────────
+// ── Shim types for local use ──────────────────────────────────────────────────
 
 struct Client {
     name: &'static str,
-    config_path: PathBuf,
+    config_path: std::path::PathBuf,
     format: Format,
     restart_hint: &'static str,
 }
 
-/// Build a VS Code globalStorage path for a given extension and settings file.
-fn vscode_ext_path(vscode_base: &Path, extension_id: &str, file: &str) -> PathBuf {
-    vscode_base
-        .join("User")
-        .join("globalStorage")
-        .join(extension_id)
-        .join("settings")
-        .join(file)
+impl From<ClientDef> for Client {
+    fn from(def: ClientDef) -> Self {
+        Self {
+            name: def.name,
+            config_path: def.config_path,
+            format: def.format,
+            restart_hint: def.restart_hint,
+        }
+    }
 }
 
 fn detect_clients() -> Vec<Client> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let home = PathBuf::from(&home);
-
-    let mut candidates: Vec<Client> = vec![
-        // ── Claude Code ───────────────────────────────────────────────────────
-        Client {
-            name: "Claude Code",
-            config_path: home.join(".claude").join("settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Claude Code to apply changes.",
-        },
-        // ── Cursor ────────────────────────────────────────────────────────────
-        Client {
-            name: "Cursor",
-            config_path: home.join(".cursor").join("mcp.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Cursor to apply changes.",
-        },
-        // ── Windsurf ──────────────────────────────────────────────────────────
-        Client {
-            name: "Windsurf",
-            config_path: home
-                .join(".codeium")
-                .join("windsurf")
-                .join("mcp_config.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Windsurf to apply changes.",
-        },
-        // ── Zed ───────────────────────────────────────────────────────────────
-        Client {
-            name: "Zed",
-            config_path: home.join(".config").join("zed").join("settings.json"),
-            format: Format::ZedContextServers,
-            restart_hint: "Restart Zed to apply changes.",
-        },
-        // ── Continue.dev ──────────────────────────────────────────────────────
-        Client {
-            name: "Continue.dev",
-            config_path: home.join(".continue").join("config.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code / JetBrains to apply changes.",
-        },
-    ];
-
-    // ── OS-specific paths ─────────────────────────────────────────────────────
-
-    #[cfg(target_os = "macos")]
-    {
-        let app_support = home.join("Library").join("Application Support");
-        let vscode = app_support.join("Code");
-        let vscode_insiders = app_support.join("Code - Insiders");
-
-        candidates.push(Client {
-            name: "Claude Desktop",
-            config_path: app_support.join("Claude").join("claude_desktop_config.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Claude Desktop to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code",
-            config_path: vscode.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code Insiders",
-            config_path: vscode_insiders.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code Insiders to apply changes.",
-        });
-        candidates.push(Client {
-            name: "Cline",
-            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code",
-            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Roo Code changes.",
-        });
-        candidates.push(Client {
-            name: "Cline (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
-        });
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let config = home.join(".config");
-        let vscode = config.join("Code");
-        let vscode_insiders = config.join("Code - Insiders");
-
-        candidates.push(Client {
-            name: "Claude Desktop",
-            config_path: config.join("Claude").join("claude_desktop_config.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Claude Desktop to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code",
-            config_path: vscode.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code Insiders",
-            config_path: vscode_insiders.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code Insiders to apply changes.",
-        });
-        candidates.push(Client {
-            name: "Cline",
-            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code",
-            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Roo Code changes.",
-        });
-        candidates.push(Client {
-            name: "Cline (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
-        });
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = PathBuf::from(
-            std::env::var("APPDATA").unwrap_or_else(|_| home.display().to_string()),
-        );
-        let vscode = appdata.join("Code");
-        let vscode_insiders = appdata.join("Code - Insiders");
-
-        candidates.push(Client {
-            name: "Claude Desktop",
-            config_path: appdata.join("Claude").join("claude_desktop_config.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart Claude Desktop to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code",
-            config_path: vscode.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code to apply changes.",
-        });
-        candidates.push(Client {
-            name: "VS Code Insiders",
-            config_path: vscode_insiders.join("User").join("mcp.json"),
-            format: Format::VsCodeServers,
-            restart_hint: "Restart VS Code Insiders to apply changes.",
-        });
-        candidates.push(Client {
-            name: "Cline",
-            config_path: vscode_ext_path(&vscode, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code",
-            config_path: vscode_ext_path(&vscode, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code to apply Roo Code changes.",
-        });
-        candidates.push(Client {
-            name: "Cline (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "saoudrizwan.claude-dev", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Cline changes.",
-        });
-        candidates.push(Client {
-            name: "Roo Code (Insiders)",
-            config_path: vscode_ext_path(&vscode_insiders, "rooveterinaryinc.roo-cline", "cline_mcp_settings.json"),
-            format: Format::McpServers,
-            restart_hint: "Restart VS Code Insiders to apply Roo Code changes.",
-        });
-    }
-
-    candidates
+    clients::all_client_defs()
         .into_iter()
         .filter(|c| c.config_path.exists())
+        .map(Client::from)
         .collect()
 }
 
@@ -253,7 +40,9 @@ pub fn run(config_path: &Path) -> Result<()> {
 
     if clients.is_empty() {
         println!("No MCP clients found.");
-        println!("Supported: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Zed, Continue.dev");
+        println!(
+            "Supported: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Zed, Continue.dev"
+        );
         println!();
         println!("Add servers manually with: trimcp add <name> -- <command> [args...]");
         return Ok(());
@@ -274,15 +63,9 @@ pub fn run(config_path: &Path) -> Result<()> {
         let mut json: Value = serde_json::from_str(&raw)?;
 
         let imported = match client.format {
-            Format::McpServers => {
-                process_mcp_servers(&mut json, &mut trimcp_config, client.name)?
-            }
-            Format::VsCodeServers => {
-                process_vscode_servers(&mut json, &mut trimcp_config, client.name)?
-            }
-            Format::ZedContextServers => {
-                process_zed_servers(&mut json, &mut trimcp_config, client.name)?
-            }
+            Format::Mcp => process_mcp_servers(&mut json, &mut trimcp_config, client.name)?,
+            Format::VsCode => process_vscode_servers(&mut json, &mut trimcp_config, client.name)?,
+            Format::ZedContext => process_zed_servers(&mut json, &mut trimcp_config, client.name)?,
         };
 
         if imported > 0 {
@@ -323,10 +106,7 @@ fn process_mcp_servers(
     trimcp_config: &mut Config,
     client_name: &str,
 ) -> Result<usize> {
-    let Some(servers) = json
-        .get_mut("mcpServers")
-        .and_then(|v| v.as_object_mut())
-    else {
+    let Some(servers) = json.get_mut("mcpServers").and_then(|v| v.as_object_mut()) else {
         println!("  (no mcpServers found)");
         return Ok(0);
     };
@@ -349,10 +129,7 @@ fn process_vscode_servers(
     trimcp_config: &mut Config,
     client_name: &str,
 ) -> Result<usize> {
-    let Some(servers) = json
-        .get_mut("servers")
-        .and_then(|v| v.as_object_mut())
-    else {
+    let Some(servers) = json.get_mut("servers").and_then(|v| v.as_object_mut()) else {
         println!("  (no servers found)");
         return Ok(0);
     };
