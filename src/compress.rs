@@ -73,10 +73,17 @@ impl CompressionStrategy for CompactJson {
 
 impl CompressionStrategy for StripComments {
     fn compress(&self, text: &str) -> String {
+        let mut in_code_block = false;
         text.lines()
             .filter(|line| {
                 let trimmed = line.trim();
-                !trimmed.starts_with("//") && !trimmed.starts_with('#')
+                if trimmed.starts_with("```") {
+                    in_code_block = !in_code_block;
+                }
+                // Strip `//` full-line comments only inside code blocks.
+                // Never strip `#` — it's a Markdown header outside code blocks
+                // and a meaningful comment (shell/Python) inside.
+                !(in_code_block && trimmed.starts_with("//"))
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -204,8 +211,8 @@ mod tests {
     // ── StripComments ─────────────────────────────────────────────────────────
 
     #[test]
-    fn test_strip_comments_removes_slash_comments() {
-        let input = "let x = 1;\n// this is a comment\nlet y = 2;";
+    fn test_strip_comments_removes_slash_comments_in_code_block() {
+        let input = "```rust\nlet x = 1;\n// this is a comment\nlet y = 2;\n```";
         let output = StripComments.compress(input);
         assert!(!output.contains("// this is a comment"));
         assert!(output.contains("let x = 1;"));
@@ -213,17 +220,25 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_comments_removes_hash_comments() {
-        let input = "x = 1\n# python comment\ny = 2";
+    fn test_strip_comments_keeps_hash_markdown_headers() {
+        let input = "# Title\n## Section\nsome text";
         let output = StripComments.compress(input);
-        assert!(!output.contains("# python comment"));
+        assert!(output.contains("# Title"));
+        assert!(output.contains("## Section"));
+    }
+
+    #[test]
+    fn test_strip_comments_keeps_slash_comments_outside_code_block() {
+        // `//` outside a code block is kept (could be part of prose or URLs)
+        let input = "// not in a code block";
+        assert_eq!(StripComments.compress(input), input);
     }
 
     #[test]
     fn test_strip_comments_keeps_inline_comments() {
         // Only strips full-line comments, not inline ones
-        let input = "let x = 1; // inline comment";
-        assert_eq!(StripComments.compress(input), input);
+        let input = "```rust\nlet x = 1; // inline comment\n```";
+        assert!(StripComments.compress(input).contains("// inline comment"));
     }
 
     // ── Dedup ─────────────────────────────────────────────────────────────────

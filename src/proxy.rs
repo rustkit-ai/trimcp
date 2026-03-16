@@ -1,9 +1,8 @@
-#![allow(dead_code)]
-
+use crate::cache::{Cache, make_cache_key};
 use crate::compress::{Pipeline, tokens_saved};
 use crate::error::{Error, Result};
 use crate::metrics::Metrics;
-use crate::protocol::{IncomingMessage, JsonRpcResponse, ResponsePayload};
+use crate::protocol::{IncomingMessage, JsonRpcRequest, JsonRpcResponse, ResponsePayload};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
@@ -17,6 +16,7 @@ pub struct Proxy {
     reader: BufReader<ChildStdout>,
     pipeline: Pipeline,
     metrics: Arc<Metrics>,
+    cache: Option<Cache>,
 }
 
 impl Proxy {
@@ -45,23 +45,46 @@ impl Proxy {
             reader: BufReader::new(stdout),
             pipeline: Pipeline::default_pipeline(),
             metrics,
+            cache: None,
         })
+    }
+
+    /// Enable TTL caching for `tools/call` results.
+    pub fn with_cache(mut self, ttl_secs: u64) -> Self {
+        self.cache = Some(Cache::new(ttl_secs));
+        self
     }
 
     /// Forward a message to the upstream and return its response.
     ///
     /// Returns `None` if the upstream closed its stdout (EOF).
-    /// Intercepts `tools/call` responses for compression (see `compress` module).
+    /// For `tools/call`: checks the cache first, compresses the response,
+    /// then stores it in the cache for future identical calls.
     pub async fn forward(&mut self, msg: &IncomingMessage) -> Result<Option<JsonRpcResponse>> {
-        self.send(msg).await?;
-
         match msg {
-            IncomingMessage::Notification(_) => Ok(None),
+            IncomingMessage::Notification(_) => {
+                self.send(msg).await?;
+                Ok(None)
+            }
             IncomingMessage::Request(req) => {
-                let response = self.recv().await?;
                 if req.is_tools_call() {
-                    return Ok(response.map(|resp| self.intercept_tools_call(resp)));
+                    if let Some(cached) = self.cache_get(req) {
+                        debug!("cache hit for tools/call");
+                        return Ok(Some(cached));
+                    }
                 }
+
+                self.send(msg).await?;
+                let response = self.recv().await?;
+
+                if req.is_tools_call() {
+                    let result = response.map(|resp| self.intercept_tools_call(resp));
+                    if let Some(ref resp) = result {
+                        self.cache_insert(req, resp.clone());
+                    }
+                    return Ok(result);
+                }
+
                 Ok(response)
             }
         }
@@ -109,11 +132,12 @@ impl Proxy {
         let compressed = self.pipeline.compress(&original);
         let saved = tokens_saved(&original, &compressed);
 
+        self.metrics.record(&original, &compressed);
+
         if saved == 0 {
             return resp;
         }
 
-        self.metrics.record(&original, &compressed);
         debug!(saved, "compressed tools/call output");
 
         let mut new_value = value.clone();
@@ -131,6 +155,21 @@ impl Proxy {
         }
     }
 
+    /// Return a cached response for this tools/call request, updating its id to match.
+    fn cache_get(&self, req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+        let key = tools_call_cache_key(req)?;
+        let mut resp = self.cache.as_ref()?.get(key)?.clone();
+        resp.id = req.id.clone();
+        Some(resp)
+    }
+
+    /// Store a tools/call response in the cache.
+    fn cache_insert(&mut self, req: &JsonRpcRequest, resp: JsonRpcResponse) {
+        if let (Some(cache), Some(key)) = (&mut self.cache, tools_call_cache_key(req)) {
+            cache.insert(key, resp);
+        }
+    }
+
     /// Kill the upstream process.
     pub async fn shutdown(&mut self) -> Result<()> {
         self.child
@@ -138,6 +177,14 @@ impl Proxy {
             .await
             .map_err(|e| Error::Upstream(e.to_string()))
     }
+}
+
+/// Compute a cache key from a tools/call request's tool name and arguments.
+fn tools_call_cache_key(req: &JsonRpcRequest) -> Option<u64> {
+    let params = req.params.as_ref()?;
+    let name = params.get("name")?.as_str()?;
+    let args = params.get("arguments").unwrap_or(&Value::Null);
+    Some(make_cache_key(name, args))
 }
 
 /// Parse a raw tools/call response content into a string for compression.
