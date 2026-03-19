@@ -132,11 +132,13 @@ impl Proxy {
                 if req.is_tools_call() {
                     let tok_in_before = self.metrics.tokens_in();
                     let tok_out_before = self.metrics.tokens_out();
-                    let mut result = response.map(|resp| self.intercept_tools_call(resp));
+                    let result = response.map(|resp| self.intercept_tools_call(resp));
                     #[cfg(feature = "semtree")]
-                    if let Some(resp) = result {
-                        result = Some(self.enrich_code_context(resp, req).await);
-                    }
+                    let result = if let Some(resp) = result {
+                        Some(self.enrich_code_context(resp, req).await)
+                    } else {
+                        None
+                    };
                     let tok_in = self.metrics.tokens_in() - tok_in_before;
                     let tok_out = self.metrics.tokens_out() - tok_out_before;
                     if let Some(ref resp) = result {
@@ -243,10 +245,7 @@ impl Proxy {
     }
 
     /// Search the knowledge store for a semantically similar past response.
-    fn knowledge_search(
-        &self,
-        req: &JsonRpcRequest,
-    ) -> Option<(JsonRpcResponse, usize, usize)> {
+    fn knowledge_search(&self, req: &JsonRpcRequest) -> Option<(JsonRpcResponse, usize, usize)> {
         let qt = tools_call_query_text(req)?;
         self.knowledge.as_ref()?.search(&qt)
     }
@@ -350,7 +349,10 @@ pub fn extract_text_content(value: &Value) -> Option<String> {
 /// Prepend a `[Code Context]` block (built from `chunks`) to the first text
 /// item of a `tools/call` response, returning the enriched response.
 #[cfg(feature = "semtree")]
-fn inject_code_context_into_response(mut resp: JsonRpcResponse, chunks: &[Chunk]) -> JsonRpcResponse {
+fn inject_code_context_into_response(
+    mut resp: JsonRpcResponse,
+    chunks: &[Chunk],
+) -> JsonRpcResponse {
     let ResponsePayload::Result(ref mut value) = resp.payload else {
         return resp;
     };
@@ -358,7 +360,11 @@ fn inject_code_context_into_response(mut resp: JsonRpcResponse, chunks: &[Chunk]
     if let Some(Some(items)) = value.get_mut("content").map(|c| c.as_array_mut()) {
         for item in items.iter_mut() {
             if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(original) = item.get("text").and_then(|t| t.as_str()).map(str::to_string) {
+                if let Some(original) = item
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .map(str::to_string)
+                {
                     item["text"] = Value::String(format!("{context_block}\n\n{original}"));
                     break;
                 }

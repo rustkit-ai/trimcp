@@ -175,6 +175,7 @@ pub fn cache_path(server: &str) -> PathBuf {
 }
 
 /// Persistent semtree index directory: `~/.config/trimcp/semtree/<server>/`.
+#[cfg(feature = "semtree")]
 pub fn semtree_index_path(server: &str) -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home)

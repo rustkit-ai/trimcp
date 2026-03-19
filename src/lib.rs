@@ -23,10 +23,3 @@ pub mod metrics;
 pub mod protocol;
 pub mod proxy;
 pub mod transport;
-
-mod clients;
-mod setup;
-mod stats_store;
-mod status;
-mod cmd_knowledge;
-mod cmd_stats;

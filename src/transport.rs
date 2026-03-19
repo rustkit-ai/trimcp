@@ -15,6 +15,7 @@ pub struct StdoutWriter {
 }
 
 impl StdinReader {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inner: BufReader::new(tokio::io::stdin()),
@@ -41,6 +42,7 @@ impl StdinReader {
 }
 
 impl StdoutWriter {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inner: BufWriter::new(tokio::io::stdout()),

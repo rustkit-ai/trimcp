@@ -4,6 +4,7 @@ use crate::compress::estimate_tokens;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Tracks token savings across a proxy session.
+#[derive(Default)]
 pub struct Metrics {
     tool_calls: AtomicUsize,
     tokens_in: AtomicUsize,
@@ -44,7 +45,8 @@ impl Metrics {
         self.tool_calls.fetch_add(1, Ordering::Relaxed);
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         self.tokens_in.fetch_add(tokens_original, Ordering::Relaxed);
-        self.tokens_out.fetch_add(tokens_compressed, Ordering::Relaxed);
+        self.tokens_out
+            .fetch_add(tokens_compressed, Ordering::Relaxed);
     }
 
     /// Record a knowledge store hit (semantically similar past response found).
