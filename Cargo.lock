@@ -2476,6 +2476,8 @@ dependencies = [
 [[package]]
 name = "semstore"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eff6df65296bbb1dc74c6110fb3a09eeb2704ceacc3b1cba53a35f45dfcaf3c"
 dependencies = [
  "fastembed",
  "once_cell",
@@ -2489,6 +2491,8 @@ dependencies = [
 [[package]]
 name = "semtree-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eafd98c10e466042eb0ab6b92f721366b308287aa58f713e8d696ea961c690a"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -2498,6 +2502,8 @@ dependencies = [
 [[package]]
 name = "semtree-embed"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a84598e71a6bc318f9fc7c6d2007e2ca1b919612e0c53f4df883d953f6f686b6"
 dependencies = [
  "async-trait",
  "fastembed",
@@ -2510,6 +2516,8 @@ dependencies = [
 [[package]]
 name = "semtree-parse"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3342bd12607a13a2cd71a498dbc61a9634888ff9db538de96db806ef30c91847"
 dependencies = [
  "semtree-core",
  "serde",
@@ -2525,6 +2533,8 @@ dependencies = [
 [[package]]
 name = "semtree-rag"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d01f95729794ef7bff1b4b43cae41d5935b94b401780bd57dce567c1c2a6e8c7"
 dependencies = [
  "async-trait",
  "semtree-core",
@@ -2541,6 +2551,8 @@ dependencies = [
 [[package]]
 name = "semtree-store"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "896ab61264de5b2c33012c3a5e3034b7f91095024045fbc2b8dece8855815812"
 dependencies = [
  "async-trait",
  "semtree-core",
@@ -2802,9 +2814,9 @@ dependencies = [
 
 [[package]]
 name = "tar"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d863878d212c87a19c1a610eb53bb01fe12951c0501cf5a0d65f724914a667a"
+checksum = "22692a6476a21fa75fdfc11d452fda482af402c008cdbaf3476414e122040973"
 dependencies = [
  "filetime",
  "libc",
@@ -3937,18 +3949,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+checksum = "efbb2a062be311f2ba113ce66f697a4dc589f85e78a4aea276200804cea0ed87"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+checksum = "0e8bc7269b54418e7aeeef514aa68f8690b8c0489a06b0136e5f57c4c5ccab89"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4044,3 +4056,23 @@ checksum = "ec5f41c76397b7da451efd19915684f727d7e1d516384ca6bd0ec43ec94de23c"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "semstore"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "semtree-core"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "semtree-embed"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "semtree-rag"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "semtree-store"
+version = "0.1.0"
