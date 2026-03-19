@@ -23,11 +23,11 @@ jobs:
             cross: false
 
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            cross: true
+            os: ubuntu-24.04-arm
+            cross: false
 
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             cross: false
 
           - target: aarch64-apple-darwin
@@ -51,17 +51,8 @@ jobs:
             target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: Install cross
-        if: matrix.cross
-        run: cargo install cross --locked
-
-      - name: Build (native)
-        if: "!matrix.cross"
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
 
       - name: Package
         shell: bash
