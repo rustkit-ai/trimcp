@@ -2,41 +2,39 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 env:
   CARGO_TERM_COLOR: always
 
-jobs:
-  publish:
-    name: Publish to crates.io
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+permissions:
+  contents: write
 
+jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
+            cross: false
+
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
+            cross: true
+
           - target: x86_64-apple-darwin
-            os: macos-latest
-            archive: tar.gz
+            os: macos-13
+            cross: false
+
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: tar.gz
-          # windows-latest excluded: rustkit-semantic depends on usearch v2 (POSIX mmap only)
+            cross: false
+
+          # windows excluded: usearch v2 uses POSIX-only mmap (MAP_FAILED)
 
     steps:
       - uses: actions/checkout@v4
@@ -45,29 +43,76 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: Install cross (Linux aarch64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
 
-      - name: Build (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Build
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+      - name: Build (native)
+        if: "!matrix.cross"
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
-        run: |
-          BIN=target/${{ matrix.target }}/release/trimcp
-          TAG=${GITHUB_REF#refs/tags/}
-          ARCHIVE=trimcp-${TAG}-${{ matrix.target }}.tar.gz
-          tar czf $ARCHIVE -C $(dirname $BIN) $(basename $BIN)
-          echo "ASSET=$ARCHIVE" >> $GITHUB_ENV
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Package
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/release/trimcp"
+          ARCHIVE="trimcp-${{ matrix.target }}.tar.gz"
+          tar -czf "$ARCHIVE" -C "$(dirname $BIN)" "$(basename $BIN)"
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+      - uses: actions/upload-artifact@v4
         with:
-          files: ${{ env.ASSET }}
+          name: ${{ matrix.target }}
+          path: trimcp-${{ matrix.target }}.*
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md 2>/dev/null || true)
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "trimcp ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.notes }}
+          files: artifacts/**
+          fail_on_unmatched_files: true
+
+  publish:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
