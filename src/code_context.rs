@@ -1,5 +1,3 @@
-#![cfg(feature = "semtree")]
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -131,9 +129,27 @@ impl CodeContext {
         self.registry.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.registry.is_empty()
     }
+}
+
+/// Format a slice of code chunks as a compact `[Code Context]` block suitable
+/// for prepending to an MCP tool response.
+pub fn format_code_context(chunks: &[Chunk]) -> String {
+    let mut lines = vec!["[Code Context]".to_string()];
+    for chunk in chunks {
+        let name = chunk.name.as_deref().unwrap_or("(unnamed)");
+        let path = chunk.path.display();
+        let lang = format!("{:?}", chunk.language).to_lowercase();
+        let span = format!("{}–{}", chunk.span.start_line, chunk.span.end_line);
+        lines.push(format!("// {name} — {path}:{span} ({lang})"));
+        let preview: String = chunk.content.lines().take(6).collect::<Vec<_>>().join("\n");
+        lines.push(preview);
+        lines.push(String::new());
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -238,21 +254,4 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         let _ = fs::remove_dir_all(&codebase);
     }
-}
-
-/// Format a slice of code chunks as a compact `[Code Context]` block suitable
-/// for prepending to an MCP tool response.
-pub fn format_code_context(chunks: &[Chunk]) -> String {
-    let mut lines = vec!["[Code Context]".to_string()];
-    for chunk in chunks {
-        let name = chunk.name.as_deref().unwrap_or("(unnamed)");
-        let path = chunk.path.display();
-        let lang = format!("{:?}", chunk.language).to_lowercase();
-        let span = format!("{}–{}", chunk.span.start_line, chunk.span.end_line);
-        lines.push(format!("// {name} — {path}:{span} ({lang})"));
-        let preview: String = chunk.content.lines().take(6).collect::<Vec<_>>().join("\n");
-        lines.push(preview);
-        lines.push(String::new());
-    }
-    lines.join("\n")
 }
