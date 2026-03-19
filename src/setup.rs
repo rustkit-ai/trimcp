@@ -226,6 +226,7 @@ fn process_zed_servers(
                 command: command.to_string(),
                 args,
                 env,
+                ..Default::default()
             },
         );
 
@@ -306,6 +307,7 @@ fn import_stdio_entry<'a>(
             command: command.to_string(),
             args,
             env,
+            ..Default::default()
         },
     );
 

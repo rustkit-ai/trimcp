@@ -1,4 +1,5 @@
 use crate::clients::{self, ServerStatus};
+use colored::Colorize;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -41,7 +42,10 @@ pub fn run(_config_path: &Path) -> anyhow::Result<()> {
     println!();
     println!("Server status:");
     println!();
-    println!("  {:<20} {:<12} CLIENTS", "NAME", "STATUS");
+    println!(
+        "  {}",
+        format!("{:<20} {:<12} CLIENTS", "NAME", "STATUS").bold()
+    );
 
     // Sort entries: proxied first, then direct, disabled, http
     let mut entries: Vec<(String, Vec<(&'static str, ServerStatus)>)> =
@@ -65,7 +69,7 @@ pub fn run(_config_path: &Path) -> anyhow::Result<()> {
         let status_label = format_status(status);
         let client_names: Vec<&str> = client_entries.iter().map(|(c, _)| *c).collect();
         println!(
-            "  {:<20} {:<12} {}",
+            "  {:<20} {} {}",
             name,
             status_label,
             client_names.join(", ")
@@ -84,12 +88,13 @@ fn status_rank(s: &ServerStatus) -> u8 {
     }
 }
 
-fn format_status(s: &ServerStatus) -> &'static str {
+fn format_status(s: &ServerStatus) -> String {
+    // Pad the plain label first, then colorize — ANSI codes must not affect alignment
     match s {
-        ServerStatus::Proxied => "\u{2713} proxied", // ✓ proxied
-        ServerStatus::Direct => "\u{2717} direct",   // ✗ direct
-        ServerStatus::Disabled => "- disabled",
-        ServerStatus::Http => "~ http",
+        ServerStatus::Proxied => format!("{:<12}", "✓ proxied").green().to_string(),
+        ServerStatus::Direct => format!("{:<12}", "✗ direct").yellow().to_string(),
+        ServerStatus::Disabled => format!("{:<12}", "- disabled").dimmed().to_string(),
+        ServerStatus::Http => format!("{:<12}", "~ http").blue().to_string(),
     }
 }
 
@@ -99,22 +104,22 @@ mod tests {
 
     #[test]
     fn test_format_status_proxied() {
-        assert_eq!(format_status(&ServerStatus::Proxied), "✓ proxied");
+        assert!(format_status(&ServerStatus::Proxied).contains("✓ proxied"));
     }
 
     #[test]
     fn test_format_status_direct() {
-        assert_eq!(format_status(&ServerStatus::Direct), "✗ direct");
+        assert!(format_status(&ServerStatus::Direct).contains("✗ direct"));
     }
 
     #[test]
     fn test_format_status_disabled() {
-        assert_eq!(format_status(&ServerStatus::Disabled), "- disabled");
+        assert!(format_status(&ServerStatus::Disabled).contains("- disabled"));
     }
 
     #[test]
     fn test_format_status_http() {
-        assert_eq!(format_status(&ServerStatus::Http), "~ http");
+        assert!(format_status(&ServerStatus::Http).contains("~ http"));
     }
 
     #[test]

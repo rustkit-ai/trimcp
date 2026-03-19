@@ -2,10 +2,12 @@
 
 mod cache;
 mod clients;
+mod cmd_knowledge;
 mod cmd_stats;
 mod compress;
 mod config;
 mod error;
+mod knowledge;
 mod metrics;
 mod protocol;
 mod proxy;
@@ -15,13 +17,15 @@ mod status;
 mod transport;
 
 use clap::{Parser, Subcommand};
-use config::{Config, ServerConfig, default_config_path};
+use colored::Colorize;
+use config::{Config, ServerConfig, ServerStrategy, default_config_path};
+use knowledge::KnowledgeStore;
 use metrics::Metrics;
 use proxy::Proxy;
 use stats_store::StatsStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, error, info, warn};
 use transport::{StdinReader, StdoutWriter};
 
 /// MCP proxy that reduces LLM token costs through compression and caching.
@@ -68,6 +72,10 @@ enum Command {
         /// Log level (error, warn, info, debug, trace)
         #[arg(long, default_value = "warn", value_name = "LEVEL")]
         log_level: String,
+
+        /// Write logs to a file instead of (or in addition to) stderr
+        #[arg(long, value_name = "FILE")]
+        log_file: Option<PathBuf>,
     },
 
     /// Auto-detect MCP clients and set up trimcp as proxy
@@ -81,6 +89,9 @@ enum Command {
         /// Server name (optional, shows all if omitted)
         name: Option<String>,
     },
+
+    /// Show knowledge store status (entries, disk usage, TTL)
+    Knowledge,
 }
 
 #[tokio::main]
@@ -96,10 +107,12 @@ async fn main() -> anyhow::Result<()> {
             name,
             metrics,
             log_level,
-        } => cmd_proxy(&config_path, &name, metrics, &log_level).await,
+            log_file,
+        } => cmd_proxy(&config_path, &name, metrics, &log_level, log_file.as_deref()).await,
         Command::Setup => setup::run(&config_path),
         Command::Status => status::run(&config_path),
         Command::Stats { name } => cmd_stats::run(&config_path, name.as_deref()),
+        Command::Knowledge => cmd_knowledge::run(&config_path),
     }
 }
 
@@ -120,11 +133,12 @@ fn cmd_add(config_path: &Path, name: &str, upstream: &[String]) -> anyhow::Resul
             command: upstream[0].clone(),
             args: upstream[1..].to_vec(),
             env: std::collections::HashMap::new(),
+            ..Default::default()
         },
     );
 
     config.save(config_path)?;
-    println!("Added server '{name}': {}", upstream.join(" "));
+    println!("{} '{}': {}", "Added server".green().bold(), name, upstream.join(" "));
     Ok(())
 }
 
@@ -136,7 +150,7 @@ fn cmd_remove(config_path: &Path, name: &str) -> anyhow::Result<()> {
     }
 
     config.save(config_path)?;
-    println!("Removed server '{name}'");
+    println!("{} '{name}'", "Removed server".green().bold());
     Ok(())
 }
 
@@ -160,7 +174,7 @@ fn cmd_list(config_path: &Path) -> anyhow::Result<()> {
         } else {
             format!("{} {}", s.command, s.args.join(" "))
         };
-        println!("  {name:<20} {cmd}");
+        println!("  {:<20} {}", name.cyan(), cmd);
     }
 
     Ok(())
@@ -171,11 +185,27 @@ async fn cmd_proxy(
     name: &str,
     realtime_metrics: bool,
     log_level: &str,
+    log_file: Option<&Path>,
 ) -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .with_writer(std::io::stderr)
-        .init();
+    if let Some(path) = log_file {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_writer(std::sync::Mutex::new(file))
+            .with_ansi(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_writer(std::io::stderr)
+            .init();
+    }
 
     let mut config = Config::load(config_path)?;
     let server = config.get_server(name)?.clone();
@@ -186,66 +216,176 @@ async fn cmd_proxy(
 
     let metrics = Arc::new(Metrics::new());
 
-    debug!(
+    info!(
+        server = %name,
         command = %server.command,
         args = ?server.args,
-        "spawning upstream"
+        metrics_enabled = config.metrics.enabled,
+        cache_enabled = config.cache.enabled,
+        stats_path = %config::stats_path().display(),
+        "trimcp proxy starting"
     );
 
     let mut proxy = {
-        let p = Proxy::spawn(
+        let mut p = Proxy::spawn(
             &server.command,
             &server.args,
             &server.env,
             Arc::clone(&metrics),
         )?;
         if config.cache.enabled {
-            p.with_cache(config.cache.ttl_secs)
-        } else {
-            p
+            p = p.with_cache(config.cache.ttl_secs, config::cache_path(name));
         }
+        if server.strategy == ServerStrategy::Knowledge {
+            let ttl_days = server
+                .knowledge_ttl_days
+                .unwrap_or(config.knowledge.ttl_days);
+            match KnowledgeStore::open(
+                &config::knowledge_path(name),
+                config.knowledge.threshold,
+                ttl_days,
+            ) {
+                Ok(store) => {
+                    info!(
+                        server = %name,
+                        ttl_days,
+                        threshold = config.knowledge.threshold,
+                        "knowledge store enabled"
+                    );
+                    p = p.with_knowledge_store(store);
+                }
+                Err(e) => {
+                    warn!(err = %e, "knowledge store init failed, running without it");
+                }
+            }
+        }
+        p
     };
 
     let mut reader = StdinReader::new();
     let mut writer = StdoutWriter::new();
 
-    loop {
-        let msg = match reader.read().await? {
-            Some(msg) => msg,
-            None => break,
-        };
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
-        match proxy.forward(&msg).await? {
-            Some(response) => {
-                if config.metrics.realtime && metrics.tool_calls() > 0 {
-                    eprintln!(
-                        "[trimcp] saved {} tokens so far ({:.1}%)",
-                        metrics.tokens_saved(),
-                        metrics.savings_percent()
-                    );
+    // Track what has already been persisted to compute deltas incrementally.
+    let mut saved_calls: usize = 0;
+    let mut saved_tokens_in: usize = 0;
+    let mut saved_tokens_out: usize = 0;
+    let mut saved_cache_hits: usize = 0;
+    let mut saved_knowledge_hits: usize = 0;
+
+    loop {
+        tokio::select! {
+            msg = reader.read() => {
+                let msg = match msg? {
+                    Some(msg) => msg,
+                    None => break,
+                };
+
+                match proxy.forward(&msg).await? {
+                    Some(response) => {
+                        if config.metrics.realtime && metrics.tool_calls() > 0 {
+                            eprintln!(
+                                "[trimcp] saved {} tokens so far ({:.1}%)",
+                                metrics.tokens_saved(),
+                                metrics.savings_percent()
+                            );
+                        }
+                        writer.write(&response).await?;
+                        // Persist delta after each tool call so `trimcp stats`
+                        // reflects live data without waiting for process exit.
+                        if config.metrics.enabled {
+                            let cur_calls = metrics.tool_calls();
+                            let cur_cache_hits = metrics.cache_hits();
+                            debug!(
+                                tool_calls = cur_calls,
+                                cache_hits = cur_cache_hits,
+                                saved_calls,
+                                "checking if delta save needed"
+                            );
+                            if cur_calls > saved_calls {
+                                let stats_path = config::stats_path();
+                                match StatsStore::load(&stats_path) {
+                                    Err(e) => error!(path = %stats_path.display(), err = %e, "failed to load stats store"),
+                                    Ok(mut store) => {
+                                        let delta_calls = cur_calls - saved_calls;
+                                        let delta_in = metrics.tokens_in() - saved_tokens_in;
+                                        let delta_out = metrics.tokens_out() - saved_tokens_out;
+                                        let delta_hits = metrics.cache_hits() - saved_cache_hits;
+                                        let delta_knowledge = metrics.knowledge_hits() - saved_knowledge_hits;
+                                        info!(
+                                            delta_calls,
+                                            delta_tokens_in = delta_in,
+                                            delta_tokens_out = delta_out,
+                                            delta_cache_hits = delta_hits,
+                                            delta_knowledge_hits = delta_knowledge,
+                                            "saving stats delta"
+                                        );
+                                        store.record_delta(name, delta_calls, delta_in, delta_out, delta_hits, delta_knowledge);
+                                        match store.save() {
+                                            Ok(()) => {
+                                                info!(path = %stats_path.display(), "stats saved");
+                                                saved_calls = cur_calls;
+                                                saved_tokens_in = metrics.tokens_in();
+                                                saved_tokens_out = metrics.tokens_out();
+                                                saved_cache_hits = metrics.cache_hits();
+                                                saved_knowledge_hits = metrics.knowledge_hits();
+                                            }
+                                            Err(e) => error!(path = %stats_path.display(), err = %e, "failed to save stats"),
+                                        }
+                                    }
+                                }
+                            } else if cur_cache_hits > saved_cache_hits {
+                                warn!(
+                                    cur_cache_hits,
+                                    saved_cache_hits,
+                                    "cache hits occurred but tool_calls not incremented — cache hits not counted in stats"
+                                );
+                            }
+                        }
+                    }
+                    None => {
+                        debug!("notification forwarded, no response");
+                    }
                 }
-                writer.write(&response).await?;
             }
-            None => {
-                debug!("notification forwarded, no response");
+            _ = sigterm.recv() => {
+                debug!("received SIGTERM, shutting down gracefully");
+                break;
             }
         }
     }
 
     if config.metrics.enabled {
         metrics.print_summary();
+        // Persist any remaining unsaved delta (e.g. calls that arrived between
+        // the last incremental save and process exit via EOF / SIGTERM).
+        let remaining = metrics.tool_calls() - saved_calls;
+        if remaining > 0 {
+            let stats_path = config::stats_path();
+            if let Ok(mut store) = StatsStore::load(&stats_path) {
+                store.record_delta(
+                    name,
+                    remaining,
+                    metrics.tokens_in() - saved_tokens_in,
+                    metrics.tokens_out() - saved_tokens_out,
+                    metrics.cache_hits() - saved_cache_hits,
+                    metrics.knowledge_hits() - saved_knowledge_hits,
+                );
+                let _ = store.save();
+            }
+        }
+        // Increment the session counter once per process lifetime.
+        if metrics.tool_calls() > 0 {
+            let stats_path = config::stats_path();
+            if let Ok(mut store) = StatsStore::load(&stats_path) {
+                store.increment_sessions(name);
+                let _ = store.save();
+            }
+        }
     }
 
     proxy.shutdown().await?;
-
-    // Persist session stats
-    if metrics.tool_calls() > 0 {
-        let stats_path = config::stats_path();
-        if let Ok(mut store) = StatsStore::load(&stats_path) {
-            store.record(name, &metrics);
-            let _ = store.save();
-        }
-    }
 
     Ok(())
 }

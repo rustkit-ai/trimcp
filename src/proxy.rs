@@ -1,10 +1,12 @@
 use crate::cache::{Cache, make_cache_key};
 use crate::compress::{Pipeline, tokens_saved};
 use crate::error::{Error, Result};
+use crate::knowledge::{KnowledgeStore, query_text};
 use crate::metrics::Metrics;
 use crate::protocol::{IncomingMessage, JsonRpcRequest, JsonRpcResponse, ResponsePayload};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -18,6 +20,8 @@ pub struct Proxy {
     pipeline: Pipeline,
     metrics: Arc<Metrics>,
     cache: Option<Cache>,
+    cache_path: Option<PathBuf>,
+    knowledge: Option<KnowledgeStore>,
 }
 
 impl Proxy {
@@ -53,12 +57,24 @@ impl Proxy {
             pipeline: Pipeline::default_pipeline(),
             metrics,
             cache: None,
+            cache_path: None,
+            knowledge: None,
         })
     }
 
-    /// Enable TTL caching for `tools/call` results.
-    pub fn with_cache(mut self, ttl_secs: u64) -> Self {
-        self.cache = Some(Cache::new(ttl_secs));
+    /// Enable TTL caching for `tools/call` results, loaded from and saved to `path`.
+    pub fn with_cache(mut self, ttl_secs: u64, path: PathBuf) -> Self {
+        self.cache = Some(Cache::load(&path, ttl_secs));
+        self.cache_path = Some(path);
+        self
+    }
+
+    /// Enable the semantic knowledge store for `tools/call` results.
+    ///
+    /// When enabled, responses are indexed by the meaning of the request.
+    /// Future semantically similar queries can hit locally without upstream.
+    pub fn with_knowledge_store(mut self, store: KnowledgeStore) -> Self {
+        self.knowledge = Some(store);
         self
     }
 
@@ -74,20 +90,36 @@ impl Proxy {
                 Ok(None)
             }
             IncomingMessage::Request(req) => {
-                if req.is_tools_call()
-                    && let Some(cached) = self.cache_get(req)
-                {
-                    debug!("cache hit for tools/call");
-                    return Ok(Some(cached));
+                if req.is_tools_call() {
+                    // Layer 1: exact TTL cache.
+                    if let Some((cached, tok_in, tok_out)) = self.cache_get(req) {
+                        debug!("cache hit for tools/call");
+                        self.metrics.record_cache_hit_with_tokens(tok_in, tok_out);
+                        return Ok(Some(cached));
+                    }
+
+                    // Layer 2: semantic knowledge store.
+                    if let Some((mut resp, tok_in, tok_out)) = self.knowledge_search(req) {
+                        resp.id = req.id.clone();
+                        debug!("knowledge store hit for tools/call");
+                        self.metrics
+                            .record_knowledge_hit_with_tokens(tok_in, tok_out);
+                        return Ok(Some(resp));
+                    }
                 }
 
                 self.send(msg).await?;
                 let response = self.recv().await?;
 
                 if req.is_tools_call() {
+                    let tok_in_before = self.metrics.tokens_in();
+                    let tok_out_before = self.metrics.tokens_out();
                     let result = response.map(|resp| self.intercept_tools_call(resp));
+                    let tok_in = self.metrics.tokens_in() - tok_in_before;
+                    let tok_out = self.metrics.tokens_out() - tok_out_before;
                     if let Some(ref resp) = result {
-                        self.cache_insert(req, resp.clone());
+                        self.cache_insert(req, resp.clone(), tok_in, tok_out);
+                        self.knowledge_insert(req, resp, tok_in, tok_out);
                     }
                     return Ok(result);
                 }
@@ -133,6 +165,7 @@ impl Proxy {
         };
 
         let Some(original) = extract_text_content(value) else {
+            self.metrics.record_call();
             return resp;
         };
 
@@ -162,29 +195,65 @@ impl Proxy {
         }
     }
 
-    /// Return a cached response for this tools/call request, updating its id to match.
-    fn cache_get(&self, req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+    /// Return a cached response and its token sizes for this tools/call request.
+    fn cache_get(&self, req: &JsonRpcRequest) -> Option<(JsonRpcResponse, usize, usize)> {
         let key = tools_call_cache_key(req)?;
-        let mut resp = self.cache.as_ref()?.get(key)?.clone();
+        let cache = self.cache.as_ref()?;
+        let mut resp = cache.get(key)?.clone();
         resp.id = req.id.clone();
-        Some(resp)
+        let (tok_in, tok_out) = cache.get_tokens(key).unwrap_or((0, 0));
+        Some((resp, tok_in, tok_out))
     }
 
-    /// Store a tools/call response in the cache, evicting stale entries first.
-    fn cache_insert(&mut self, req: &JsonRpcRequest, resp: JsonRpcResponse) {
+    /// Store a tools/call response in the cache with its token sizes.
+    fn cache_insert(
+        &mut self,
+        req: &JsonRpcRequest,
+        resp: JsonRpcResponse,
+        tokens_original: usize,
+        tokens_compressed: usize,
+    ) {
         if let (Some(cache), Some(key)) = (&mut self.cache, tools_call_cache_key(req)) {
             cache.evict_expired();
-            cache.insert(key, resp);
+            cache.insert(key, resp, tokens_original, tokens_compressed);
             debug!(entries = cache.len(), "cache updated");
         }
     }
 
-    /// Kill the upstream process.
+    /// Search the knowledge store for a semantically similar past response.
+    fn knowledge_search(
+        &self,
+        req: &JsonRpcRequest,
+    ) -> Option<(JsonRpcResponse, usize, usize)> {
+        let qt = tools_call_query_text(req)?;
+        self.knowledge.as_ref()?.search(&qt)
+    }
+
+    /// Index this response in the knowledge store for future semantic hits.
+    fn knowledge_insert(
+        &mut self,
+        req: &JsonRpcRequest,
+        resp: &JsonRpcResponse,
+        tokens_original: usize,
+        tokens_compressed: usize,
+    ) {
+        let Some(qt) = tools_call_query_text(req) else {
+            return;
+        };
+        if let Some(store) = &mut self.knowledge {
+            if let Err(e) = store.insert(&qt, resp, tokens_original, tokens_compressed) {
+                debug!(err = %e, "knowledge insert failed");
+            } else {
+                debug!(entries = store.len(), "knowledge store updated");
+            }
+        }
+    }
+
+    /// Kill the upstream process and persist the cache to disk.
     pub async fn shutdown(&mut self) -> Result<()> {
-        if let Some(cache) = &self.cache
-            && !cache.is_empty()
-        {
-            debug!(entries = cache.len(), "cache entries at shutdown");
+        if let (Some(cache), Some(path)) = (&mut self.cache, &self.cache_path) {
+            debug!(entries = cache.len(), "saving cache at shutdown");
+            let _ = cache.save(path);
         }
         self.child
             .kill()
@@ -199,6 +268,14 @@ fn tools_call_cache_key(req: &JsonRpcRequest) -> Option<u64> {
     let name = params.get("name")?.as_str()?;
     let args = params.get("arguments").unwrap_or(&Value::Null);
     Some(make_cache_key(name, args))
+}
+
+/// Build the query text used as the semantic key for a tools/call request.
+fn tools_call_query_text(req: &JsonRpcRequest) -> Option<String> {
+    let params = req.params.as_ref()?;
+    let name = params.get("name")?.as_str()?;
+    let args = params.get("arguments").unwrap_or(&Value::Null);
+    Some(query_text(name, args))
 }
 
 /// Parse a raw tools/call response content into a string for compression.

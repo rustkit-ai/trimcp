@@ -11,6 +11,9 @@ pub struct ServerStats {
     pub tokens_in: usize,
     pub tokens_out: usize,
     pub sessions: usize,
+    pub cache_hits: usize,
+    #[serde(default)]
+    pub knowledge_hits: usize,
 }
 
 impl ServerStats {
@@ -52,12 +55,42 @@ impl StatsStore {
     }
 
     /// Add session metrics to the named server's cumulative totals.
+    #[allow(dead_code)]
     pub fn record(&mut self, server: &str, metrics: &Metrics) {
         let entry = self.data.servers.entry(server.to_string()).or_default();
         entry.total_calls += metrics.tool_calls();
         entry.tokens_in += metrics.tokens_in();
         entry.tokens_out += metrics.tokens_out();
+        entry.cache_hits += metrics.cache_hits();
+        entry.knowledge_hits += metrics.knowledge_hits();
         entry.sessions += 1;
+    }
+
+    /// Increment the session counter for a server (called once per process lifetime).
+    pub fn increment_sessions(&mut self, server: &str) {
+        self.data
+            .servers
+            .entry(server.to_string())
+            .or_default()
+            .sessions += 1;
+    }
+
+    /// Add a pre-computed delta (used for mid-session incremental saves).
+    pub fn record_delta(
+        &mut self,
+        server: &str,
+        calls: usize,
+        tokens_in: usize,
+        tokens_out: usize,
+        cache_hits: usize,
+        knowledge_hits: usize,
+    ) {
+        let entry = self.data.servers.entry(server.to_string()).or_default();
+        entry.total_calls += calls;
+        entry.tokens_in += tokens_in;
+        entry.tokens_out += tokens_out;
+        entry.cache_hits += cache_hits;
+        entry.knowledge_hits += knowledge_hits;
     }
 
     /// Write the stats file to disk, creating parent directories as needed.
@@ -101,6 +134,8 @@ mod tests {
             tokens_in: 1000,
             tokens_out: 600,
             sessions: 2,
+            cache_hits: 0,
+            knowledge_hits: 0,
         };
         assert_eq!(s.tokens_saved(), 400);
     }
@@ -112,6 +147,8 @@ mod tests {
             tokens_in: 1000,
             tokens_out: 600,
             sessions: 2,
+            cache_hits: 0,
+            knowledge_hits: 0,
         };
         assert!((s.savings_percent() - 40.0).abs() < 0.001);
     }

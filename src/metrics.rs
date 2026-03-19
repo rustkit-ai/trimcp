@@ -8,6 +8,8 @@ pub struct Metrics {
     tool_calls: AtomicUsize,
     tokens_in: AtomicUsize,
     tokens_out: AtomicUsize,
+    cache_hits: AtomicUsize,
+    knowledge_hits: AtomicUsize,
 }
 
 impl Metrics {
@@ -16,6 +18,8 @@ impl Metrics {
             tool_calls: AtomicUsize::new(0),
             tokens_in: AtomicUsize::new(0),
             tokens_out: AtomicUsize::new(0),
+            cache_hits: AtomicUsize::new(0),
+            knowledge_hits: AtomicUsize::new(0),
         }
     }
 
@@ -26,6 +30,42 @@ impl Metrics {
             .fetch_add(estimate_tokens(original), Ordering::Relaxed);
         self.tokens_out
             .fetch_add(estimate_tokens(compressed), Ordering::Relaxed);
+    }
+
+    /// Record a tool call that had no compressible text content.
+    pub fn record_call(&self) {
+        self.tool_calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a cache hit (upstream not contacted), with the original and
+    /// compressed token sizes of the cached response (used to accumulate
+    /// compression savings across cache hits).
+    pub fn record_cache_hit_with_tokens(&self, tokens_original: usize, tokens_compressed: usize) {
+        self.tool_calls.fetch_add(1, Ordering::Relaxed);
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.tokens_in.fetch_add(tokens_original, Ordering::Relaxed);
+        self.tokens_out.fetch_add(tokens_compressed, Ordering::Relaxed);
+    }
+
+    /// Record a knowledge store hit (semantically similar past response found).
+    pub fn record_knowledge_hit_with_tokens(
+        &self,
+        tokens_original: usize,
+        tokens_compressed: usize,
+    ) {
+        self.tool_calls.fetch_add(1, Ordering::Relaxed);
+        self.knowledge_hits.fetch_add(1, Ordering::Relaxed);
+        self.tokens_in.fetch_add(tokens_original, Ordering::Relaxed);
+        self.tokens_out
+            .fetch_add(tokens_compressed, Ordering::Relaxed);
+    }
+
+    pub fn cache_hits(&self) -> usize {
+        self.cache_hits.load(Ordering::Relaxed)
+    }
+
+    pub fn knowledge_hits(&self) -> usize {
+        self.knowledge_hits.load(Ordering::Relaxed)
     }
 
     pub fn tool_calls(&self) -> usize {
@@ -57,6 +97,8 @@ impl Metrics {
         eprintln!();
         eprintln!("[trimcp] Session summary:");
         eprintln!("  Tool calls proxied : {}", self.tool_calls());
+        eprintln!("  Cache hits         : {}", self.cache_hits());
+        eprintln!("  Knowledge hits     : {}", self.knowledge_hits());
         eprintln!("  Tokens in          : {}", format_number(self.tokens_in()));
         eprintln!(
             "  Tokens out         : {}",

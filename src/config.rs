@@ -11,6 +11,37 @@ pub struct Config {
     pub compression: CompressionConfig,
     pub metrics: MetricsConfig,
     pub cache: CacheConfig,
+    pub knowledge: KnowledgeConfig,
+}
+
+/// Global defaults for the semantic knowledge store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KnowledgeConfig {
+    /// Minimum cosine-similarity score `[0.0, 1.0]` to accept a semantic hit.
+    pub threshold: f32,
+    /// How many days to keep stored responses before they expire.
+    pub ttl_days: u64,
+}
+
+impl Default for KnowledgeConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.82,
+            ttl_days: 7,
+        }
+    }
+}
+
+/// How a server's tool-call responses are stored and retrieved.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerStrategy {
+    /// Pass every call upstream (no knowledge store). Default.
+    #[default]
+    Passthrough,
+    /// Index responses semantically; similar future queries get a local hit.
+    Knowledge,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -19,6 +50,10 @@ pub struct ServerConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    /// Caching strategy for this server (default: passthrough).
+    pub strategy: ServerStrategy,
+    /// Override the global `knowledge.ttl_days` for this server.
+    pub knowledge_ttl_days: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +132,26 @@ pub fn stats_path() -> PathBuf {
         .join(".config")
         .join("trimcp")
         .join("stats.json")
+}
+
+/// Persistent knowledge store path: `~/.config/trimcp/knowledge/<server>.db`.
+pub fn knowledge_path(server: &str) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("trimcp")
+        .join("knowledge")
+        .join(format!("{server}.db"))
+}
+
+/// Persistent cache file path: `~/.config/trimcp/cache/<server>.json`.
+pub fn cache_path(server: &str) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("trimcp")
+        .join("cache")
+        .join(format!("{server}.json"))
 }
 
 // ── Loading / Saving ──────────────────────────────────────────────────────────
@@ -234,6 +289,7 @@ args = []
                 command: "my-cmd".to_string(),
                 args: vec!["--flag".to_string()],
                 env: HashMap::new(),
+                ..Default::default()
             },
         );
         cfg.save(&path).unwrap();

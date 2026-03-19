@@ -13,6 +13,7 @@ categories = ["command-line-utilities", "network-programming"]
 exclude = ["backlog/", ".claude/"]
 
 [dependencies]
+rustkit-semantic = { path = "../rustkit-semantic" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,6 +23,7 @@ clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+colored = "2"
 
 [dev-dependencies]
 tempfile = "3"
