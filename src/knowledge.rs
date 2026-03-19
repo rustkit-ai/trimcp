@@ -57,14 +57,14 @@ impl KnowledgeStore {
         for result in results {
             let meta = &result.metadata;
             // Reject cross-tool hits: tool names must match.
-            if let Some(stored_tool) = meta.get("tool_name").and_then(|v| v.as_str()) {
-                if stored_tool != query_tool {
-                    debug!(
-                        stored_tool,
-                        query_tool, "knowledge hit skipped: tool name mismatch"
-                    );
-                    continue;
-                }
+            if let Some(stored_tool) = meta.get("tool_name").and_then(|v| v.as_str())
+                && stored_tool != query_tool
+            {
+                debug!(
+                    stored_tool,
+                    query_tool, "knowledge hit skipped: tool name mismatch"
+                );
+                continue;
             }
             let inserted_at = meta.get("inserted_at")?.as_u64()?;
             if now.saturating_sub(inserted_at) >= self.ttl_secs {
