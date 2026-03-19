@@ -114,6 +114,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    #[allow(dead_code)]
     fn make_metrics(calls: usize, tokens_in: usize, tokens_out: usize) -> Arc<Metrics> {
         let m = Arc::new(Metrics::new());
         // Use record() to accumulate the right amounts via estimate_tokens approximation.

@@ -61,7 +61,7 @@ impl StdoutWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::{IncomingMessage, JsonRpcRequest, JsonRpcResponse, RequestId};
+    use crate::protocol::{IncomingMessage, JsonRpcRequest, RequestId};
     use serde_json::json;
 
     fn make_request(method: &str) -> JsonRpcRequest {
