@@ -359,15 +359,14 @@ fn inject_code_context_into_response(
     let context_block = format_code_context(chunks);
     if let Some(Some(items)) = value.get_mut("content").map(|c| c.as_array_mut()) {
         for item in items.iter_mut() {
-            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(original) = item
+            if item.get("type").and_then(|t| t.as_str()) == Some("text")
+                && let Some(original) = item
                     .get("text")
                     .and_then(|t| t.as_str())
                     .map(str::to_string)
-                {
-                    item["text"] = Value::String(format!("{context_block}\n\n{original}"));
-                    break;
-                }
+            {
+                item["text"] = Value::String(format!("{context_block}\n\n{original}"));
+                break;
             }
         }
     }
