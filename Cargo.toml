@@ -27,11 +27,11 @@ path = "src/main.rs"
 semtree = ["dep:semtree-core", "dep:semtree-embed", "dep:semtree-store", "dep:semtree-rag"]
 
 [dependencies]
-semstore      = { git = "https://github.com/rustkit-ai/semstore" }
-semtree-core  = { git = "https://github.com/rustkit-ai/semtree", optional = true }
-semtree-embed = { git = "https://github.com/rustkit-ai/semtree", optional = true }
-semtree-store = { git = "https://github.com/rustkit-ai/semtree", optional = true }
-semtree-rag   = { git = "https://github.com/rustkit-ai/semtree", optional = true }
+semstore      = "0.1"
+semtree-core  = { version = "0.1", optional = true }
+semtree-embed = { version = "0.1", optional = true }
+semtree-store = { version = "0.1", optional = true }
+semtree-rag   = { version = "0.1", optional = true }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
