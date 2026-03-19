@@ -1,22 +1,40 @@
-# trimcp
+<h1 align="center">trimcp</h1>
 
-[![CI](https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/trimcp.svg)](https://crates.io/crates/trimcp)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  MCP proxy that cuts LLM token costs by 60–90% through lossless compression and caching.
+</p>
 
-MCP proxy that reduces LLM token costs by **60–90%** through output compression and TTL caching.
+<p align="center">
+  <a href="https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml"><img src="https://github.com/rustkit-ai/trimcp/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="https://crates.io/crates/trimcp"><img src="https://img.shields.io/crates/v/trimcp.svg" alt="crates.io"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"/></a>
+</p>
+
+---
+
+**MCP tool outputs are full of noise.** Pretty-printed JSON, ANSI color codes, repeated log lines, inline comments — none of it adds information, all of it costs tokens. On a busy session with filesystem and git tools, this quietly burns 30–50% of your context budget before the model even starts thinking.
+
+`trimcp` sits transparently between your LLM client and every MCP server. It strips the noise, caches identical calls, and reports exactly what it saved.
 
 ```
-LLM Client (Claude Code, Cursor, claude_desktop…)
+LLM client (Claude Code, Cursor, claude_desktop…)
         ↓
-  trimcp          ← strips ANSI, minifies JSON, deduplicates lines
-   ↙    ↓    ↘
-MCP1  MCP2  MCP3
+    trimcp          ← strips ANSI, minifies JSON, deduplicates lines, caches
+     ↙    ↓    ↘
+  MCP1  MCP2  MCP3
 ```
 
-## Why
+```
+[trimcp] session summary
+  Requests    : 47
+  Tokens in   : 84,312
+  Tokens out  : 31,847  (62% smaller)
+  Cache hits  : 12 / 47
+```
 
-MCP tool outputs are often verbose: pretty-printed JSON, ANSI color codes, repeated lines, inline comments. All of that costs tokens without adding information. `trimcp` sits between your LLM client and the upstream servers and applies lossless compression before the output reaches the model.
+Zero configuration required — it works out of the box.
+
+---
 
 ## Install
 
@@ -24,112 +42,123 @@ MCP tool outputs are often verbose: pretty-printed JSON, ANSI color codes, repea
 cargo install trimcp
 ```
 
+---
+
 ## Quick start
 
 ```bash
-# Register your MCP servers
+# Register your MCP servers once
 trimcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
 trimcp add github    -- npx -y @modelcontextprotocol/server-github
 
-# Check what's configured
-trimcp list
-
-# Use in proxy mode (called by your LLM client)
+# Point your LLM client at trimcp instead of the server directly
 trimcp proxy filesystem
 ```
 
+---
+
 ## LLM client configuration
 
-### Claude Code (`~/.claude/settings.json`)
+Replace your server commands with `trimcp proxy <name>`. Nothing else changes.
 
+**Claude Code** (`~/.claude/settings.json`):
 ```json
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "trimcp",
-      "args": ["proxy", "filesystem"]
-    },
-    "github": {
-      "command": "trimcp",
-      "args": ["proxy", "github"]
-    }
+    "filesystem": { "command": "trimcp", "args": ["proxy", "filesystem"] },
+    "github":     { "command": "trimcp", "args": ["proxy", "github"] }
   }
 }
 ```
 
-### Cursor / claude_desktop_config.json
-
+**Cursor / claude_desktop** (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "trimcp",
-      "args": ["proxy", "filesystem"]
-    }
+    "filesystem": { "command": "trimcp", "args": ["proxy", "filesystem"] }
   }
 }
 ```
+
+---
+
+## What gets compressed
+
+| Strategy | What it removes | Typical saving |
+|---|---|---|
+| `strip_ansi` | Terminal color/cursor codes (`\x1b[…`) | ~5% |
+| `compact_json` | Whitespace in pretty-printed JSON | ~30% |
+| `dedup` | Consecutive identical lines → `line (xN)` | ~40% on logs |
+| `minify` | Trailing whitespace, extra blank lines | ~5% |
+| `strip_comments` | `//` full-line comments in code blocks | ~10% |
+
+All strategies are lossless — no information is truncated or dropped.
+
+---
 
 ## Configuration
 
-Config is stored at `~/.config/trimcp/config.toml` (created automatically on first `add`).
+`~/.config/trimcp/config.toml` — created automatically on first `add`.
 
 ```toml
 [servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
-[servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-
 [compression]
-enabled = true        # master switch
-strip_ansi = true     # remove terminal color codes
-compact_json = true   # minify pretty-printed JSON
-strip_comments = false # remove // comments inside code blocks
-dedup = true          # collapse repeated lines into "line (xN)"
-minify = true         # trim trailing whitespace, collapse blank lines
-
-[metrics]
-enabled = true        # print summary to stderr at session end
-realtime = false      # print running total after each tool call
+enabled       = true   # master switch
+strip_ansi    = true
+compact_json  = true
+dedup         = true
+minify        = true
+strip_comments = false
 
 [cache]
-enabled = true        # TTL cache for identical tool call results
-ttl_secs = 300        # cache lifetime in seconds
+enabled  = true
+ttl_secs = 300    # cache lifetime in seconds
+
+[metrics]
+enabled  = true   # print summary to stderr at session end
+realtime = false  # print running total after each tool call
 ```
 
-## Compression strategies
+---
 
-| Strategy | What it removes | Example savings |
-|---|---|---|
-| `StripAnsi` | Terminal color/cursor codes (`\x1b[…`) | ~5% on colored output |
-| `CompactJson` | Whitespace in pretty-printed JSON | ~30% on JSON responses |
-| `Dedup` | Consecutive identical lines → `line (xN)` | ~40% on log output |
-| `Minify` | Trailing whitespace, extra blank lines | ~5% everywhere |
-| `StripComments` | `//` full-line comments in code blocks | ~10% on documented code |
+## Optional: semantic code context (`semtree` feature)
 
-Strategies run in pipeline order. None of them truncate or lose information.
+Enable the `semtree` feature to inject relevant code snippets into every `tools/call` response. The model sees the context it needs without you having to ask for it.
 
-## CLI reference
-
-```
-trimcp add <name> -- <command> [args...]   Add a server to the config
-trimcp remove <name>                        Remove a server
-trimcp list                                 List configured servers
-trimcp proxy <name> [--metrics]             Run as proxy (used by LLM clients)
+```toml
+# Cargo.toml
+trimcp = { version = "0.1", features = ["semtree"] }
 ```
 
-## Development
+```toml
+# ~/.config/trimcp/config.toml
+[servers.my-server]
+semtree_codebase = "/path/to/your/project"
+semtree_top_k    = 3
 
-```bash
-cargo build
-cargo test
-cargo clippy -- -D warnings
-cargo fmt --check
+# Index the codebase once
+# trimcp semtree-index my-server
 ```
+
+---
+
+## CLI
+
+```
+trimcp add <name> -- <command> [args…]   Register a server
+trimcp remove <name>                      Remove a server
+trimcp list                               List configured servers
+trimcp proxy <name>                       Run as proxy (used by LLM clients)
+trimcp stats                              Show compression statistics
+trimcp knowledge                          Inspect the semantic knowledge store
+trimcp semtree-index <name>               Index a codebase (--features semtree)
+```
+
+---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
