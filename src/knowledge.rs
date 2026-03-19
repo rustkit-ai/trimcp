@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::protocol::JsonRpcResponse;
-use rustkit_semantic::SemanticIndex;
+use semstore::SemanticIndex;
 use serde_json::json;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};

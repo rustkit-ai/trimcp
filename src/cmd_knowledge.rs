@@ -1,6 +1,6 @@
 use crate::config::{self, Config, ServerStrategy};
 use colored::Colorize;
-use rustkit_semantic::SemanticIndex;
+use semstore::SemanticIndex;
 use std::path::Path;
 
 pub fn run(config_path: &Path) -> anyhow::Result<()> {
