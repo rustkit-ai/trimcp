@@ -2,7 +2,7 @@
 name = "trimcp"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "MCP proxy that reduces LLM token costs by 60–90% through compression and caching"
 license = "MIT"
 repository = "https://github.com/rustkit-ai/trimcp"
