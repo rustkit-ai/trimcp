@@ -122,7 +122,16 @@ async fn main() -> anyhow::Result<()> {
             metrics,
             log_level,
             log_file,
-        } => cmd_proxy(&config_path, &name, metrics, &log_level, log_file.as_deref()).await,
+        } => {
+            cmd_proxy(
+                &config_path,
+                &name,
+                metrics,
+                &log_level,
+                log_file.as_deref(),
+            )
+            .await
+        }
         Command::Setup => setup::run(&config_path),
         Command::Status => status::run(&config_path),
         Command::Stats { name } => cmd_stats::run(&config_path, name.as_deref()),
@@ -156,7 +165,12 @@ fn cmd_add(config_path: &Path, name: &str, upstream: &[String]) -> anyhow::Resul
     );
 
     config.save(config_path)?;
-    println!("{} '{}': {}", "Added server".green().bold(), name, upstream.join(" "));
+    println!(
+        "{} '{}': {}",
+        "Added server".green().bold(),
+        name,
+        upstream.join(" ")
+    );
     Ok(())
 }
 
@@ -441,15 +455,12 @@ async fn cmd_semtree_index(
 
     let codebase_dir = match path_override {
         Some(p) => p.to_path_buf(),
-        None => server
-            .semtree_codebase
-            .clone()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no codebase path for server '{name}' — \
+        None => server.semtree_codebase.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no codebase path for server '{name}' — \
                      set `semtree_codebase` in config or pass --path <dir>"
-                )
-            })?,
+            )
+        })?,
     };
 
     let top_k = server.semtree_top_k.unwrap_or(config.semtree.top_k);

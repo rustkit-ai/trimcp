@@ -59,7 +59,10 @@ impl KnowledgeStore {
             // Reject cross-tool hits: tool names must match.
             if let Some(stored_tool) = meta.get("tool_name").and_then(|v| v.as_str()) {
                 if stored_tool != query_tool {
-                    debug!(stored_tool, query_tool, "knowledge hit skipped: tool name mismatch");
+                    debug!(
+                        stored_tool,
+                        query_tool, "knowledge hit skipped: tool name mismatch"
+                    );
                     continue;
                 }
             }
@@ -69,8 +72,7 @@ impl KnowledgeStore {
                 continue;
             }
             let response_json = meta.get("response")?;
-            let response: JsonRpcResponse =
-                serde_json::from_value(response_json.clone()).ok()?;
+            let response: JsonRpcResponse = serde_json::from_value(response_json.clone()).ok()?;
             let tokens_original = meta
                 .get("tokens_original")
                 .and_then(|v| v.as_u64())
@@ -129,9 +131,7 @@ impl KnowledgeStore {
     /// (e.g. at process shutdown) to compact the store.
     #[allow(dead_code)]
     pub fn evict_expired(&mut self) -> usize {
-        self.index
-            .remove_older_than(self.ttl_secs)
-            .unwrap_or(0)
+        self.index.remove_older_than(self.ttl_secs).unwrap_or(0)
     }
 
     /// Number of entries in the index (including potentially expired ones).

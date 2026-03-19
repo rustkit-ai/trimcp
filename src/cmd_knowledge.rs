@@ -30,19 +30,13 @@ pub fn run(config_path: &Path) -> anyhow::Result<()> {
     println!("{}", sep.dimmed());
     println!(
         "  Threshold : {}   TTL : {} days",
-        config.knowledge.threshold,
-        config.knowledge.ttl_days
+        config.knowledge.threshold, config.knowledge.ttl_days
     );
     println!();
 
     if knowledge_servers.is_empty() {
-        println!(
-            "  {}",
-            "No servers have strategy = \"knowledge\".".yellow()
-        );
-        println!(
-            "  Set strategy = \"knowledge\" in a [servers.<name>] block to enable."
-        );
+        println!("  {}", "No servers have strategy = \"knowledge\".".yellow());
+        println!("  Set strategy = \"knowledge\" in a [servers.<name>] block to enable.");
         println!();
         return Ok(());
     }
@@ -67,9 +61,7 @@ pub fn run(config_path: &Path) -> anyhow::Result<()> {
 
         let (entries, disk) = if path.exists() {
             let count = SemanticIndex::entry_count(&path).unwrap_or(0);
-            let bytes = std::fs::metadata(&path)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             (count, fmt_bytes(bytes))
         } else {
             (0, "—".to_string())

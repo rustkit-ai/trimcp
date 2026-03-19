@@ -69,7 +69,11 @@ impl Cache {
     /// Look up a cached response. Returns `None` if missing or expired.
     pub fn get(&self, key: u64) -> Option<&JsonRpcResponse> {
         let entry = self.entries.get(&key)?;
-        if !entry.is_expired() { Some(&entry.response) } else { None }
+        if !entry.is_expired() {
+            Some(&entry.response)
+        } else {
+            None
+        }
     }
 
     /// Return the token sizes stored with a cache entry.

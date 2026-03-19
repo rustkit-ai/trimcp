@@ -84,7 +84,11 @@ fn print_all(all: &std::collections::HashMap<String, ServerStats>) -> anyhow::Re
     println!("{}", sep.dimmed());
     println!();
     println!("  {:<16} {}", "Tool calls:".bold(), fmt_num(total_calls));
-    println!("  {:<16} {}", "Cache hits:".bold(), fmt_num(total_cache_hits));
+    println!(
+        "  {:<16} {}",
+        "Cache hits:".bold(),
+        fmt_num(total_cache_hits)
+    );
     println!(
         "  {:<16} {}",
         "Knowledge hits:".bold(),

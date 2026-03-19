@@ -6,8 +6,8 @@ use std::sync::Arc;
 use semtree_core::Chunk;
 use semtree_embed::fastembed::FastEmbedder;
 use semtree_rag::{ChunkRegistry, Indexer, SearchEngine};
-use semtree_store::usearch::UsearchStore;
 use semtree_store::VectorStore;
+use semtree_store::usearch::UsearchStore;
 use tracing::{info, warn};
 
 use crate::error::{Error, Result};
@@ -65,7 +65,11 @@ impl CodeContext {
             .map_err(|e| Error::Upstream(format!("semtree registry save: {e}")))?;
 
         let engine = Arc::new(SearchEngine::new(embedder, store));
-        Ok(Self { engine, registry, top_k })
+        Ok(Self {
+            engine,
+            registry,
+            top_k,
+        })
     }
 
     /// Load a pre-built index from `index_dir`.
@@ -98,7 +102,11 @@ impl CodeContext {
             .map_err(|e| Error::Upstream(format!("semtree registry load: {e}")))?;
 
         let engine = Arc::new(SearchEngine::new(embedder, store));
-        Ok(Self { engine, registry, top_k })
+        Ok(Self {
+            engine,
+            registry,
+            top_k,
+        })
     }
 
     /// Search for code chunks semantically relevant to `query`.
@@ -242,12 +250,7 @@ pub fn format_code_context(chunks: &[Chunk]) -> String {
         let lang = format!("{:?}", chunk.language).to_lowercase();
         let span = format!("{}–{}", chunk.span.start_line, chunk.span.end_line);
         lines.push(format!("// {name} — {path}:{span} ({lang})"));
-        let preview: String = chunk
-            .content
-            .lines()
-            .take(6)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let preview: String = chunk.content.lines().take(6).collect::<Vec<_>>().join("\n");
         lines.push(preview);
         lines.push(String::new());
     }
