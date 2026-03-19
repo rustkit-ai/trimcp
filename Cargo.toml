@@ -2,6 +2,7 @@
 name = "trimcp"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "MCP proxy that reduces LLM token costs by 60–90% through compression and caching"
 license = "MIT"
 repository = "https://github.com/rustkit-ai/trimcp"
@@ -12,8 +13,25 @@ keywords = ["mcp", "llm", "proxy", "token", "compression"]
 categories = ["command-line-utilities", "network-programming"]
 exclude = ["backlog/", ".claude/"]
 
+[lib]
+name = "trimcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "trimcp"
+path = "src/main.rs"
+
+[features]
+# Enable semtree code-context injection (tree-sitter + fastembed + usearch).
+# Without this feature, trimcp is a lightweight MCP proxy with no ML dependencies.
+semtree = ["dep:semtree-core", "dep:semtree-embed", "dep:semtree-store", "dep:semtree-rag"]
+
 [dependencies]
-rustkit-semantic = { path = "../rustkit-semantic" }
+rustkit-semantic = { version = "0.1" }
+semtree-core  = { version = "0.1", optional = true }
+semtree-embed = { version = "0.1", optional = true }
+semtree-store = { version = "0.1", optional = true }
+semtree-rag   = { version = "0.1", optional = true }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,3 +45,12 @@ colored = "2"
 
 [dev-dependencies]
 tempfile = "3"
+
+# ── Local development overrides ───────────────────────────────────────────────
+# Remove or comment out before publishing to crates.io.
+[patch.crates-io]
+rustkit-semantic = { path = "../rustkit-semantic" }
+semtree-core  = { path = "../semtree/crates/semtree-core" }
+semtree-embed = { path = "../semtree/crates/semtree-embed" }
+semtree-store = { path = "../semtree/crates/semtree-store" }
+semtree-rag   = { path = "../semtree/crates/semtree-rag" }

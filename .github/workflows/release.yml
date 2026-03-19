@@ -15,7 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   build:
     name: Build ${{ matrix.target }}
@@ -35,9 +36,7 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            archive: zip
+          # windows-latest excluded: rustkit-semantic depends on usearch v2 (POSIX mmap only)
 
     steps:
       - uses: actions/checkout@v4
@@ -60,24 +59,13 @@ jobs:
         if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package (Unix)
-        if: matrix.archive == 'tar.gz'
+      - name: Package
         run: |
-          BIN=target/${{ matrix.target }}/release/rustkit-mcp
+          BIN=target/${{ matrix.target }}/release/trimcp
           TAG=${GITHUB_REF#refs/tags/}
-          ARCHIVE=rustkit-mcp-${TAG}-${{ matrix.target }}.tar.gz
+          ARCHIVE=trimcp-${TAG}-${{ matrix.target }}.tar.gz
           tar czf $ARCHIVE -C $(dirname $BIN) $(basename $BIN)
           echo "ASSET=$ARCHIVE" >> $GITHUB_ENV
-
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: |
-          $BIN = "target/${{ matrix.target }}/release/rustkit-mcp.exe"
-          $TAG = $env:GITHUB_REF -replace 'refs/tags/', ''
-          $ARCHIVE = "rustkit-mcp-${TAG}-${{ matrix.target }}.zip"
-          Compress-Archive -Path $BIN -DestinationPath $ARCHIVE
-          "ASSET=$ARCHIVE" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2

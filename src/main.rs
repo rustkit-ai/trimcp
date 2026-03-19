@@ -4,6 +4,8 @@ mod cache;
 mod clients;
 mod cmd_knowledge;
 mod cmd_stats;
+#[cfg(feature = "semtree")]
+mod code_context;
 mod compress;
 mod config;
 mod error;
@@ -17,6 +19,8 @@ mod status;
 mod transport;
 
 use clap::{Parser, Subcommand};
+#[cfg(feature = "semtree")]
+use code_context::CodeContext;
 use colored::Colorize;
 use config::{Config, ServerConfig, ServerStrategy, default_config_path};
 use knowledge::KnowledgeStore;
@@ -92,6 +96,16 @@ enum Command {
 
     /// Show knowledge store status (entries, disk usage, TTL)
     Knowledge,
+
+    #[cfg(feature = "semtree")]
+    /// Index a codebase with semtree for a named server
+    SemtreeIndex {
+        /// Server name (must be configured with `semtree_codebase` set, or pass `--path`)
+        name: String,
+        /// Path to the codebase to index (overrides `semtree_codebase` in config)
+        #[arg(short, long, value_name = "DIR")]
+        path: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -113,6 +127,10 @@ async fn main() -> anyhow::Result<()> {
         Command::Status => status::run(&config_path),
         Command::Stats { name } => cmd_stats::run(&config_path, name.as_deref()),
         Command::Knowledge => cmd_knowledge::run(&config_path),
+        #[cfg(feature = "semtree")]
+        Command::SemtreeIndex { name, path } => {
+            cmd_semtree_index(&config_path, &name, path.as_deref()).await
+        }
     }
 }
 
@@ -259,6 +277,28 @@ async fn cmd_proxy(
                 }
             }
         }
+        #[cfg(feature = "semtree")]
+        if server.semtree_codebase.is_some() {
+            let top_k = server.semtree_top_k.unwrap_or(config.semtree.top_k);
+            let index_path = config::semtree_index_path(name);
+            match CodeContext::load(&index_path, top_k) {
+                Ok(ctx) => {
+                    info!(
+                        server = %name,
+                        chunks = ctx.len(),
+                        top_k,
+                        "semtree code context enabled"
+                    );
+                    p = p.with_code_context(ctx);
+                }
+                Err(e) => {
+                    warn!(
+                        err = %e,
+                        "semtree index not ready — run `trimcp semtree-index {name}` to build it"
+                    );
+                }
+            }
+        }
         p
     };
 
@@ -386,6 +426,50 @@ async fn cmd_proxy(
     }
 
     proxy.shutdown().await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "semtree")]
+async fn cmd_semtree_index(
+    config_path: &Path,
+    name: &str,
+    path_override: Option<&Path>,
+) -> anyhow::Result<()> {
+    let config = Config::load(config_path)?;
+    let server = config.get_server(name)?;
+
+    let codebase_dir = match path_override {
+        Some(p) => p.to_path_buf(),
+        None => server
+            .semtree_codebase
+            .clone()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no codebase path for server '{name}' — \
+                     set `semtree_codebase` in config or pass --path <dir>"
+                )
+            })?,
+    };
+
+    let top_k = server.semtree_top_k.unwrap_or(config.semtree.top_k);
+    let index_path = config::semtree_index_path(name);
+
+    println!(
+        "{} '{}': {}",
+        "Indexing".green().bold(),
+        name,
+        codebase_dir.display()
+    );
+
+    let ctx = CodeContext::build(&codebase_dir, &index_path, top_k).await?;
+
+    println!(
+        "{} {} chunks → {}",
+        "Indexed".green().bold(),
+        ctx.len(),
+        index_path.display()
+    );
 
     Ok(())
 }

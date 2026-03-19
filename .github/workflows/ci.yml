@@ -14,8 +14,11 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # windows-latest excluded: rustkit-semantic depends on usearch v2 which
+        # uses POSIX-only mmap and does not compile with MSVC.
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,3 +40,23 @@ jobs:
 
       - name: build
         run: cargo build --release
+
+  semtree-feature:
+    name: Feature — semtree
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check with semtree feature
+        run: cargo check --features semtree
+
+      - name: Clippy with semtree feature
+        run: cargo clippy --features semtree -- -D warnings
+
+      - name: Test with semtree feature (unit tests only — model download skipped)
+        run: cargo test --features semtree --lib

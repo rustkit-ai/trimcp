@@ -1,9 +1,13 @@
 use crate::cache::{Cache, make_cache_key};
+#[cfg(feature = "semtree")]
+use crate::code_context::{CodeContext, format_code_context};
 use crate::compress::{Pipeline, tokens_saved};
 use crate::error::{Error, Result};
 use crate::knowledge::{KnowledgeStore, query_text};
 use crate::metrics::Metrics;
 use crate::protocol::{IncomingMessage, JsonRpcRequest, JsonRpcResponse, ResponsePayload};
+#[cfg(feature = "semtree")]
+use semtree_core::Chunk;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +26,8 @@ pub struct Proxy {
     cache: Option<Cache>,
     cache_path: Option<PathBuf>,
     knowledge: Option<KnowledgeStore>,
+    #[cfg(feature = "semtree")]
+    code_context: Option<CodeContext>,
 }
 
 impl Proxy {
@@ -59,6 +65,8 @@ impl Proxy {
             cache: None,
             cache_path: None,
             knowledge: None,
+            #[cfg(feature = "semtree")]
+            code_context: None,
         })
     }
 
@@ -75,6 +83,16 @@ impl Proxy {
     /// Future semantically similar queries can hit locally without upstream.
     pub fn with_knowledge_store(mut self, store: KnowledgeStore) -> Self {
         self.knowledge = Some(store);
+        self
+    }
+
+    /// Enable semtree code-context injection for `tools/call` responses.
+    ///
+    /// When enabled, every tool response is enriched with the most relevant
+    /// code chunks from the indexed codebase before being returned to the LLM.
+    #[cfg(feature = "semtree")]
+    pub fn with_code_context(mut self, ctx: CodeContext) -> Self {
+        self.code_context = Some(ctx);
         self
     }
 
@@ -114,7 +132,11 @@ impl Proxy {
                 if req.is_tools_call() {
                     let tok_in_before = self.metrics.tokens_in();
                     let tok_out_before = self.metrics.tokens_out();
-                    let result = response.map(|resp| self.intercept_tools_call(resp));
+                    let mut result = response.map(|resp| self.intercept_tools_call(resp));
+                    #[cfg(feature = "semtree")]
+                    if let Some(resp) = result {
+                        result = Some(self.enrich_code_context(resp, req).await);
+                    }
                     let tok_in = self.metrics.tokens_in() - tok_in_before;
                     let tok_out = self.metrics.tokens_out() - tok_out_before;
                     if let Some(ref resp) = result {
@@ -249,6 +271,30 @@ impl Proxy {
         }
     }
 
+    /// Enrich a `tools/call` response with relevant code chunks from semtree.
+    ///
+    /// If no `CodeContext` is configured, or no relevant chunks are found,
+    /// the response is returned unchanged.
+    #[cfg(feature = "semtree")]
+    async fn enrich_code_context(
+        &self,
+        resp: JsonRpcResponse,
+        req: &JsonRpcRequest,
+    ) -> JsonRpcResponse {
+        let Some(ctx) = &self.code_context else {
+            return resp;
+        };
+        let Some(query) = tools_call_query_text(req) else {
+            return resp;
+        };
+        let chunks = ctx.search(&query).await;
+        if chunks.is_empty() {
+            return resp;
+        }
+        debug!(chunks = chunks.len(), "injecting semtree code context");
+        inject_code_context_into_response(resp, &chunks)
+    }
+
     /// Kill the upstream process and persist the cache to disk.
     pub async fn shutdown(&mut self) -> Result<()> {
         if let (Some(cache), Some(path)) = (&mut self.cache, &self.cache_path) {
@@ -299,6 +345,27 @@ pub fn extract_text_content(value: &Value) -> Option<String> {
     } else {
         Some(texts.join("\n"))
     }
+}
+
+/// Prepend a `[Code Context]` block (built from `chunks`) to the first text
+/// item of a `tools/call` response, returning the enriched response.
+#[cfg(feature = "semtree")]
+fn inject_code_context_into_response(mut resp: JsonRpcResponse, chunks: &[Chunk]) -> JsonRpcResponse {
+    let ResponsePayload::Result(ref mut value) = resp.payload else {
+        return resp;
+    };
+    let context_block = format_code_context(chunks);
+    if let Some(Some(items)) = value.get_mut("content").map(|c| c.as_array_mut()) {
+        for item in items.iter_mut() {
+            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(original) = item.get("text").and_then(|t| t.as_str()).map(str::to_string) {
+                    item["text"] = Value::String(format!("{context_block}\n\n{original}"));
+                    break;
+                }
+            }
+        }
+    }
+    resp
 }
 
 #[cfg(test)]

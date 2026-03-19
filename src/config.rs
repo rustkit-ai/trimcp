@@ -12,6 +12,7 @@ pub struct Config {
     pub metrics: MetricsConfig,
     pub cache: CacheConfig,
     pub knowledge: KnowledgeConfig,
+    pub semtree: SemtreeConfig,
 }
 
 /// Global defaults for the semantic knowledge store.
@@ -30,6 +31,20 @@ impl Default for KnowledgeConfig {
             threshold: 0.82,
             ttl_days: 7,
         }
+    }
+}
+
+/// Global defaults for the semtree code-context injection layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SemtreeConfig {
+    /// Number of code chunks to inject into each tool response.
+    pub top_k: usize,
+}
+
+impl Default for SemtreeConfig {
+    fn default() -> Self {
+        Self { top_k: 3 }
     }
 }
 
@@ -54,6 +69,11 @@ pub struct ServerConfig {
     pub strategy: ServerStrategy,
     /// Override the global `knowledge.ttl_days` for this server.
     pub knowledge_ttl_days: Option<u64>,
+    /// Path to the codebase to index with semtree. When set, the proxy injects
+    /// relevant code context into every `tools/call` response going back to the LLM.
+    pub semtree_codebase: Option<PathBuf>,
+    /// Override the global `semtree.top_k` for this server.
+    pub semtree_top_k: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +172,16 @@ pub fn cache_path(server: &str) -> PathBuf {
         .join("trimcp")
         .join("cache")
         .join(format!("{server}.json"))
+}
+
+/// Persistent semtree index directory: `~/.config/trimcp/semtree/<server>/`.
+pub fn semtree_index_path(server: &str) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("trimcp")
+        .join("semtree")
+        .join(server)
 }
 
 // ── Loading / Saving ──────────────────────────────────────────────────────────
