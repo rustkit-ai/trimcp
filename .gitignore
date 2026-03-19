@@ -2,3 +2,4 @@
 backlog/
 CLAUDE.md
 **/.fastembed_cache/
+.cargo/config.toml

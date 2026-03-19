@@ -47,12 +47,14 @@ colored = "2"
 tempfile = "3"
 
 # ── Local development overrides ───────────────────────────────────────────────
-# These path patches override the git deps above when working locally.
-[patch."https://github.com/rustkit-ai/semstore"]
-semstore = { path = "../rustkit-semantic" }
-
-[patch."https://github.com/rustkit-ai/semtree"]
-semtree-core  = { path = "../semtree/crates/semtree-core" }
-semtree-embed = { path = "../semtree/crates/semtree-embed" }
-semtree-store = { path = "../semtree/crates/semtree-store" }
-semtree-rag   = { path = "../semtree/crates/semtree-rag" }
+# To use local checkouts instead of git deps, create .cargo/config.toml
+# (gitignored) with the following content:
+#
+# [patch."https://github.com/rustkit-ai/semstore"]
+# semstore = { path = "../rustkit-semantic" }
+#
+# [patch."https://github.com/rustkit-ai/semtree"]
+# semtree-core  = { path = "../semtree/crates/semtree-core" }
+# semtree-embed = { path = "../semtree/crates/semtree-embed" }
+# semtree-store = { path = "../semtree/crates/semtree-store" }
+# semtree-rag   = { path = "../semtree/crates/semtree-rag" }
